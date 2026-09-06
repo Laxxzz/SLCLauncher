@@ -73,6 +73,35 @@ if (Test-Path $srcCfg) {
     Write-Host "  config  -> $installDir\config.json"
 }
 
+# ------------------------------------------------------ what will be started --
+# Report the outcome rather than just the answers, so the line cannot claim
+# WowUp is on while an installed config.json quietly turns it off. Switches
+# win over the file, exactly as they do in the watcher.
+$launch = @{ WowUp = $true; CurseForge = $true }
+if (Test-Path $srcCfg) {
+    try {
+        $json = Get-Content $srcCfg -Raw | ConvertFrom-Json
+        foreach ($n in @('WowUp', 'CurseForge')) {
+            $v = $json."Launch$n"
+            if ($null -ne $v -and "$v" -ne '') {
+                $launch[$n] = @('1', 'true', 'yes', 'on') -contains "$v".Trim().ToLowerInvariant()
+            }
+        }
+    } catch {
+        # An unreadable config is the watcher's problem to report, not ours.
+    }
+}
+if ($NoWowUp)      { $launch.WowUp      = $false }
+if ($NoCurseForge) { $launch.CurseForge = $false }
+
+$starts = @('Archon')
+if ($launch.WowUp)      { $starts += 'WowUp' }
+if ($launch.CurseForge) { $starts += 'CurseForge' }
+# The caveat only makes sense once an optional app is in the list: Archon is
+# required, so "whichever you have" would be a strange thing to say about it.
+$maybe = if ($starts.Count -gt 1) { '  (whichever of those you have)' } else { '' }
+Write-Host "  starts  -> $($starts -join ', ')$maybe"
+
 # --------------------------------------------------- stop any running copy --
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
     Where-Object { $_.CommandLine -like '*ArchonLauncher.ps1*' -and $_.ProcessId -ne $PID } |

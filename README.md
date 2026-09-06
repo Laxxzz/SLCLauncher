@@ -90,7 +90,25 @@ current user only.
 1. Download the zip and **extract it** (right-click → Extract All). Don't run it
    from inside the zip.
 2. Double-click **`Install.cmd`**.
-3. Answer the one question it asks, and you're done.
+3. Answer the three questions it asks, and you're done.
+
+It asks each of these in turn, and every one of them can be changed later by
+running `Install.cmd` again:
+
+```
+  If you use WowUp, launch it with WoW too?      [Y/N]
+  If you use CurseForge, launch it with WoW too? [Y/N]
+  Also close them again when you quit WoW?       [Y/N]
+```
+
+Both apps are asked about whether or not you have them, because the installer
+would have to repeat the watcher's entire search to know. Answering **Y** for
+something you haven't installed costs nothing: the watcher notes
+`not installed - skipping` and gets on with the rest. Archon is not asked about
+— starting it is the whole point of the tool.
+
+The line `starts -> Archon, WowUp` in the installer's output confirms what it
+registered.
 
 Windows may show *"Windows protected your PC"* because the file came from the
 internet. Click **More info → Run anyway**. The installer clears that mark from
@@ -176,10 +194,16 @@ along with the script. Empty or missing values fall back to the defaults:
 
 To watch retail only, set `GamePattern` to `^Wow$`.
 
-The two `Launch*` keys are the ones to reach for. The `*Exe` keys exist for the
-rare install that auto-detection misses, and are better left empty otherwise —
-an empty value means "find it", not "don't launch it", so blanking a path does
-not switch an app off.
+You don't need this file for the `Launch*` keys — `Install.cmd` asks about both
+apps directly, and re-running it is the easy way to change your mind. They are
+here for people who script the install or keep their settings in one place. A
+`config.json` that sets them and an installer answer that disagrees resolve the
+same way the watcher does: the installer's answer wins, since it becomes a
+command-line switch.
+
+The `*Exe` keys exist for the rare install that auto-detection misses, and are
+better left empty otherwise — an empty value means "find it", not "don't launch
+it", so blanking a path does not switch an app off.
 
 ### How the apps are found
 
@@ -270,10 +294,11 @@ or `CurseForgeExe` in `config.json` to the full path of the executable and run
 Overwolf rather than as the standalone app: that one has no `CurseForge.exe` of
 its own to start, and this tool cannot launch it.
 
-**They start when I don't want them to.** Set `LaunchWowUp` or
-`LaunchCurseForge` to `false` in `config.json` and run `Install.cmd` again, or
-install with `-NoWowUp` / `-NoCurseForge`. Note that emptying `WowUpExe` does
-*not* do this — an empty path means auto-detect.
+**They start when I don't want them to.** Run `Install.cmd` again and answer
+**N** to that app's question. The scriptable equivalents are `-NoWowUp` /
+`-NoCurseForge` on the command line, or `LaunchWowUp` / `LaunchCurseForge` set
+to `false` in `config.json`. Note that emptying `WowUpExe` does *not* do this —
+an empty path means auto-detect.
 
 **`QuitWithWow` didn't close one of them.** The watcher asks politely: it sends
 a close request to the app's main window, the same thing clicking the X does. An
