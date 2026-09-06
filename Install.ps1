@@ -13,7 +13,13 @@
     Scheduled task name. Default "ArchonLauncher".
 
 .PARAMETER QuitWithWow
-    Also close Archon when WoW exits.
+    Also close the apps when WoW exits.
+
+.PARAMETER NoWowUp
+    Never start WowUp, even when it is installed.
+
+.PARAMETER NoCurseForge
+    Never start CurseForge, even when it is installed.
 
 .PARAMETER HeartbeatMinutes
     How often Task Scheduler re-checks that the watcher is alive, restarting it
@@ -21,11 +27,14 @@
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\Install.ps1
+    powershell -ExecutionPolicy Bypass -File .\Install.ps1 -NoCurseForge
 #>
 [CmdletBinding()]
 param(
     [string] $TaskName = 'ArchonLauncher',
     [switch] $QuitWithWow,
+    [switch] $NoWowUp,
+    [switch] $NoCurseForge,
     [int]    $HeartbeatMinutes = 5
 )
 
@@ -80,7 +89,9 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Silen
 $wscript = Join-Path $env:SystemRoot 'System32\wscript.exe'
 
 $argLine = "`"$shimTarget`""
-if ($QuitWithWow) { $argLine += ' -QuitWithWow' }
+if ($QuitWithWow)  { $argLine += ' -QuitWithWow' }
+if ($NoWowUp)      { $argLine += ' -NoWowUp' }
+if ($NoCurseForge) { $argLine += ' -NoCurseForge' }
 
 $action = New-ScheduledTaskAction -Execute $wscript -Argument $argLine
 
@@ -125,7 +136,7 @@ Register-ScheduledTask `
     -Trigger     $triggers `
     -Principal   $principal `
     -Settings    $settings `
-    -Description 'Starts the Archon App when World of Warcraft launches.' `
+    -Description 'Starts the Archon App, WowUp and CurseForge when World of Warcraft launches.' `
     -Force | Out-Null
 
 Write-Host "  task    -> $TaskName (at logon, hidden, self-healing every ${HeartbeatMinutes}m)"

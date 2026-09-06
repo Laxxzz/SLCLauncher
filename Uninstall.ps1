@@ -55,4 +55,4 @@ if ($KeepFiles) {
 }
 
 Write-Host ""
-Write-Host "Done. Archon's own settings were not touched." -ForegroundColor Green
+Write-Host "Done. Archon, WowUp and CurseForge were not touched." -ForegroundColor Green

@@ -4,8 +4,9 @@ title Archon Launcher - Install
 
 echo.
 echo   Archon Launcher
-echo   Starts the Archon App when World of Warcraft launches.
-echo   ------------------------------------------------------
+echo   Starts the Archon App - plus WowUp and CurseForge, if you have them -
+echo   when World of Warcraft launches.
+echo   ---------------------------------------------------------------------
 echo.
 
 rem Clear the "downloaded from the internet" mark so the scripts can run.
@@ -15,7 +16,7 @@ rem Arguments passed on the command line win; otherwise ask.
 set "OPTS=%*"
 if not "%OPTS%"=="" goto run
 
-choice /C YN /N /M "  Also close Archon when you quit WoW?  [Y/N] "
+choice /C YN /N /M "  Also close them again when you quit WoW?  [Y/N] "
 if errorlevel 2 goto run
 set "OPTS=-QuitWithWow"
 

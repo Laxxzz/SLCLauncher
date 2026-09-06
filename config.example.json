@@ -1,5 +1,9 @@
 {
   "ArchonExe":          "",
+  "WowUpExe":           "",
+  "CurseForgeExe":      "",
+  "LaunchWowUp":        true,
+  "LaunchCurseForge":   true,
   "GamePattern":        "^Wow(Classic|T|B)?$",
   "PollSeconds":        1,
   "LaunchDelaySeconds": 3,

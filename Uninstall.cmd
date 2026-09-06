@@ -7,7 +7,7 @@ echo   Archon Launcher - Uninstall
 echo   ---------------------------
 echo.
 echo   This removes the scheduled task and stops the watcher.
-echo   Your Archon App settings are not touched.
+echo   Archon, WowUp and CurseForge themselves are not touched.
 echo.
 
 choice /C YN /N /M "  Remove Archon Launcher?  [Y/N] "
