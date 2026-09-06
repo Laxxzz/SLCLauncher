@@ -96,19 +96,21 @@ It asks each of these in turn, and every one of them can be changed later by
 running `Install.cmd` again:
 
 ```
-  If you use WowUp, launch it with WoW too?      [Y/N]
-  If you use CurseForge, launch it with WoW too? [Y/N]
-  Also close them again when you quit WoW?       [Y/N]
+  Launch WowUp with WoW too?          [Y/N]
+  Launch CurseForge with WoW too?     [Y/N]
+  Close them again when you quit WoW? [Y/N]
 ```
 
-Both apps are asked about whether or not you have them, because the installer
-would have to repeat the watcher's entire search to know. Answering **Y** for
-something you haven't installed costs nothing: the watcher notes
-`not installed - skipping` and gets on with the rest. Archon is not asked about
-— starting it is the whole point of the tool.
+Archon is not asked about — starting it is the whole point of the tool. The two
+managers are asked about regardless of what you have installed, and saying yes
+to one you don't own costs nothing: the watcher notes `not installed - skipping`
+and gets on with the rest.
 
-The line `starts -> Archon, WowUp` in the installer's output confirms what it
-registered.
+The installer then confirms what it registered:
+
+```
+  starts  -> Archon, plus WowUp and CurseForge if installed
+```
 
 Windows may show *"Windows protected your PC"* because the file came from the
 internet. Click **More info → Run anyway**. The installer clears that mark from

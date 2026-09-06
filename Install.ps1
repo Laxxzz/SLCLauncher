@@ -94,13 +94,17 @@ if (Test-Path $srcCfg) {
 if ($NoWowUp)      { $launch.WowUp      = $false }
 if ($NoCurseForge) { $launch.CurseForge = $false }
 
-$starts = @('Archon')
-if ($launch.WowUp)      { $starts += 'WowUp' }
-if ($launch.CurseForge) { $starts += 'CurseForge' }
-# The caveat only makes sense once an optional app is in the list: Archon is
-# required, so "whichever you have" would be a strange thing to say about it.
-$maybe = if ($starts.Count -gt 1) { '  (whichever of those you have)' } else { '' }
-Write-Host "  starts  -> $($starts -join ', ')$maybe"
+# Archon is stated flatly and the "if installed" caveat covers only the two
+# optional apps, since Archon is the point of the tool rather than something
+# you might happen to have.
+$optional = @()
+if ($launch.WowUp)      { $optional += 'WowUp' }
+if ($launch.CurseForge) { $optional += 'CurseForge' }
+if ($optional.Count -eq 0) {
+    Write-Host "  starts  -> Archon only"
+} else {
+    Write-Host "  starts  -> Archon, plus $($optional -join ' and ') if installed"
+}
 
 # --------------------------------------------------- stop any running copy --
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
