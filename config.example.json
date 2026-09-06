@@ -7,5 +7,6 @@
   "GamePattern":        "^Wow(Classic|T|B)?$",
   "PollSeconds":        1,
   "LaunchDelaySeconds": 3,
-  "QuitWithWow":        false
+  "QuitWithWow":        false,
+  "QuitGraceSeconds":   5
 }

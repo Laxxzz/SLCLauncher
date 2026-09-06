@@ -46,6 +46,11 @@
 .PARAMETER QuitWithWow
     Also close the apps when WoW exits.
 
+.PARAMETER QuitGraceSeconds
+    With QuitWithWow, how long to let an app close on its own before stopping
+    it. Default 5. Set to 0 to only ever ask, which leaves apps that treat a
+    close as "hide to the tray" -- WowUp by default -- still running.
+
 .EXAMPLE
     .\ArchonLauncher.ps1
     .\ArchonLauncher.ps1 -GamePattern '^Wow$' -QuitWithWow
@@ -61,14 +66,15 @@ param(
     [string] $GamePattern,
     [int]    $PollSeconds,
     [int]    $LaunchDelaySeconds = -1,
-    [switch] $QuitWithWow
+    [switch] $QuitWithWow,
+    [int]    $QuitGraceSeconds = -1
 )
 
 $ErrorActionPreference = 'Stop'
 
 # The single source of truth for the version. Install.ps1 and ViewLog.cmd read
 # it back out of this file rather than keeping copies that can drift.
-$ArchonLauncherVersion = '1.4.0'
+$ArchonLauncherVersion = '1.4.1'
 
 # ------------------------------------------------------------- single copy --
 # Only one watcher may run at a time. The task starts this script from both a
@@ -92,6 +98,7 @@ $cfg = @{
     PollSeconds        = 1
     LaunchDelaySeconds = 3
     QuitWithWow        = $false
+    QuitGraceSeconds   = 5
     LogFile            = Join-Path $env:LOCALAPPDATA 'ArchonLauncher\launcher.log'
     MaxLogBytes        = 1MB
 }
@@ -119,6 +126,7 @@ if ($PSBoundParameters.ContainsKey('CurseForgeExe')) { $cfg.CurseForgeExe = $Cur
 if ($PSBoundParameters.ContainsKey('GamePattern'))   { $cfg.GamePattern   = $GamePattern }
 if ($PSBoundParameters.ContainsKey('PollSeconds'))   { $cfg.PollSeconds   = $PollSeconds }
 if ($LaunchDelaySeconds -ge 0)                       { $cfg.LaunchDelaySeconds = $LaunchDelaySeconds }
+if ($QuitGraceSeconds -ge 0)                         { $cfg.QuitGraceSeconds = $QuitGraceSeconds }
 if ($QuitWithWow)                                    { $cfg.QuitWithWow      = $true }
 if ($NoWowUp)                                        { $cfg.LaunchWowUp      = $false }
 if ($NoCurseForge)                                   { $cfg.LaunchCurseForge = $false }
@@ -128,6 +136,7 @@ if ($NoCurseForge)                                   { $cfg.LaunchCurseForge = $
 # A negative value throws outright. Clamp both rather than trusting the file.
 if ($cfg.PollSeconds        -lt 1) { $cfg.PollSeconds        = 1 }
 if ($cfg.LaunchDelaySeconds -lt 0) { $cfg.LaunchDelaySeconds = 0 }
+if ($cfg.QuitGraceSeconds   -lt 0) { $cfg.QuitGraceSeconds   = 0 }
 
 function ConvertTo-Bool {
     # JSON gives real booleans, but a hand-edited config can just as easily say
@@ -355,6 +364,52 @@ function Start-Companion {
     }
 }
 
+function Stop-Companions {
+    # Asking means a WM_CLOSE to the main window -- the same message clicking
+    # the X sends. An app is free to read that as "hide to the tray" rather
+    # than "exit", which is precisely what WowUp does by default: it obeys the
+    # request and stays running, leaving quit-with-wow half honoured. So
+    # anything still alive at the end of the grace window is stopped outright.
+    #
+    # Everything is asked first and the grace window then serves the whole set,
+    # rather than one wait per app. The game has just exited, but a watcher
+    # asleep for three consecutive waits is three launches it cannot see.
+    param([int]$GraceSeconds)
+
+    $asked = @()
+    foreach ($app in $script:Companions) {
+        if (-not $app.Exe) { continue }
+        $procs = @(Get-Process -ErrorAction SilentlyContinue |
+                   Where-Object { $_.ProcessName -match $app.Pattern })
+        if ($procs.Count -eq 0) { continue }
+        foreach ($p in $procs) {
+            try { $null = $p.CloseMainWindow() } catch { }
+        }
+        Write-Log "asked $($app.Name) to close"
+        $asked += $app
+    }
+
+    if ($asked.Count -eq 0 -or $GraceSeconds -le 0) { return }
+
+    # Give them the chance to go quietly; most will, and that is the better exit.
+    $deadline = (Get-Date).AddSeconds($GraceSeconds)
+    while ((Get-Date) -lt $deadline) {
+        Start-Sleep -Milliseconds 500
+        $stillUp = @($asked | Where-Object { Test-ProcessRunning $_.Pattern })
+        if ($stillUp.Count -eq 0) { return }
+    }
+
+    foreach ($app in $asked) {
+        $left = @(Get-Process -ErrorAction SilentlyContinue |
+                  Where-Object { $_.ProcessName -match $app.Pattern })
+        if ($left.Count -eq 0) { continue }
+        foreach ($p in $left) {
+            try { Stop-Process -Id $p.Id -Force -ErrorAction Stop } catch { }
+        }
+        Write-Log "$($app.Name) ignored the close request - stopped it"
+    }
+}
+
 function Invoke-CompanionLaunch {
     # Shared by the startup catch-up and the poll loop. Immediate skips the
     # delay: at startup the game has already been up for a while, so there is
@@ -489,7 +544,13 @@ foreach ($app in $script:Companions) {
 }
 Write-Log "watching  : $($cfg.GamePattern)  every $($cfg.PollSeconds)s"
 Write-Log "delay     : $($cfg.LaunchDelaySeconds)s after the game is spotted"
-if ($cfg.QuitWithWow) { Write-Log 'quit-with-wow: enabled' }
+if ($cfg.QuitWithWow) {
+    if ($cfg.QuitGraceSeconds -gt 0) {
+        Write-Log "quit-with-wow: enabled, stopping anything still up after $($cfg.QuitGraceSeconds)s"
+    } else {
+        Write-Log 'quit-with-wow: enabled, asking only'
+    }
+}
 
 # The watcher can start mid-session: at logon with the game already up, or when
 # the heartbeat revives it after a kill. Waiting for a fresh launch that already
@@ -524,14 +585,7 @@ while ($true) {
     elseif (-not $isRunning -and $wasRunning) {
         Write-Log 'game exited'
         if ($cfg.QuitWithWow) {
-            foreach ($app in $script:Companions) {
-                if (-not $app.Exe) { continue }
-                $procs = @(Get-Process -ErrorAction SilentlyContinue |
-                           Where-Object { $_.ProcessName -match $app.Pattern })
-                if ($procs.Count -eq 0) { continue }
-                $procs | ForEach-Object { $null = $_.CloseMainWindow() }
-                Write-Log "asked $($app.Name) to close"
-            }
+            Stop-Companions -GraceSeconds $cfg.QuitGraceSeconds
         }
     }
 

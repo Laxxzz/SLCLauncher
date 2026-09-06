@@ -182,7 +182,8 @@ along with the script. Empty or missing values fall back to the defaults:
   "GamePattern":        "^Wow(Classic|T|B)?$",
   "PollSeconds":        1,
   "LaunchDelaySeconds": 3,
-  "QuitWithWow":        false
+  "QuitWithWow":        false,
+  "QuitGraceSeconds":   5
 }
 ```
 
@@ -197,6 +198,7 @@ along with the script. Empty or missing values fall back to the defaults:
 | `PollSeconds` | `1` | Seconds between checks. Minimum `1`. |
 | `LaunchDelaySeconds` | `3` | Wait this long after spotting the game before starting the apps. `0` launches immediately. |
 | `QuitWithWow` | `false` | Close the apps when the game exits. |
+| `QuitGraceSeconds` | `5` | How long an app gets to close on its own before it is stopped outright. `0` only ever asks. See [Closing them again](#closing-them-again). |
 
 To watch retail only, set `GamePattern` to `^Wow$`.
 
@@ -210,6 +212,33 @@ command-line switch.
 The `*Exe` keys exist for the rare install that auto-detection misses, and are
 better left empty otherwise — an empty value means "find it", not "don't launch
 it", so blanking a path does not switch an app off.
+
+### Closing them again
+
+`QuitWithWow` first *asks* each app to close, by sending its main window the
+same message clicking the X does. Archon and CurseForge take that as "exit".
+WowUp, by default, takes it as **"hide to the system tray"** — it obeys and
+keeps running, which made "close all of them" quietly untrue for one app.
+
+So asking is only the first move. Anything still running `QuitGraceSeconds`
+later is stopped outright:
+
+```
+[05:07:59] asked WowUp to close
+[05:08:04] WowUp ignored the close request - stopped it
+```
+
+The grace window is shared by all three rather than spent on each in turn, and
+apps that exit politely never reach the second step — the log just shows the
+`asked` lines and nothing more.
+
+Set `QuitGraceSeconds` to `0` to go back to asking only. Worth doing if you'd
+rather a mid-flight addon update was never interrupted: a forced stop is a
+forced stop, and an addon manager caught halfway through writing to your
+`AddOns` folder will not finish the job. Five seconds of grace makes that
+unlikely, not impossible. The alternative that costs nothing is to turn off
+close-to-tray in WowUp's own settings, after which it exits when asked and the
+timeout never fires.
 
 ### How the apps are found
 
@@ -266,7 +295,7 @@ around somewhere. A healthy log looks like:
 
 ```
 [2026-08-15 22:05:16] watcher started (pid 24196)
-[2026-08-15 22:05:16] version   : 1.4.0
+[2026-08-15 22:05:16] version   : 1.4.1
 [2026-08-15 22:05:16] Archon    : C:\Program Files\Archon App\Archon App.exe
 [2026-08-15 22:05:16] WowUp     : C:\Users\me\AppData\Local\Programs\wowup-cf\WowUp-CF.exe
 [2026-08-15 22:05:16] CurseForge: not installed - skipping
@@ -306,11 +335,12 @@ its own to start, and this tool cannot launch it.
 to `false` in `config.json`. Note that emptying `WowUpExe` does *not* do this —
 an empty path means auto-detect.
 
-**`QuitWithWow` didn't close one of them.** The watcher asks politely: it sends
-a close request to the app's main window, the same thing clicking the X does. An
-app already sitting in the tray with no window open has nothing to send it to,
-so it stays. The log says `asked WowUp to close` because that is exactly what
-happened — it is a request, not a kill.
+**`QuitWithWow` left one of them running.** Expected before 1.4.1, and WowUp was
+almost always the one: it treats a close request as "hide to the tray" and
+stayed alive having done as it was asked. From 1.4.1 anything still up after
+`QuitGraceSeconds` is stopped outright, so the log reads
+`WowUp ignored the close request - stopped it`. See
+[Closing them again](#closing-them-again) if you'd rather it only ever asked.
 
 **Archon starts but stays behind the game** — that is Archon's own behaviour.
 It opens its window *without* taking focus, so with the game in exclusive
@@ -358,7 +388,8 @@ starts the log fresh. That's expected, not a fault.
   polling doesn't justify either.
 - Nothing here modifies, patches, or injects into Archon, the addon managers or
   WoW. It only calls `Start-Process` on their executables — and, with
-  `QuitWithWow`, asks their windows to close.
+  `QuitWithWow`, asks their windows to close, then stops whatever ignored the
+  request.
 - Adding the addon managers costs nothing per poll. The extra work happens only
   when the game launches, not once a second, so the figures above still hold.
 
