@@ -16,7 +16,12 @@ rem at PowerShell as ['] -- an inverted match that silently finds nothing. The
 rem non-greedy (.+?) needs no caret and behaves identically here.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$s = Join-Path $env:LOCALAPPDATA 'ArchonLauncher\ArchonLauncher.ps1'; if(Test-Path $s){ $m = Select-String -Path $s -Pattern \"ArchonLauncherVersion\s*=\s*'(.+?)'\" | Select-Object -First 1; if($m){ Write-Host \"  Installed version : $($m.Matches[0].Groups[1].Value)\" } else { Write-Host '  Installed version : unknown (script present but no version marker)' } } else { Write-Host '  Installed version : NOT INSTALLED - run Install.cmd' }"
 
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$w = Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*ArchonLauncher.ps1*' } | Select-Object -First 1; if($w){ Write-Host \"  Watcher           : RUNNING (pid $($w.ProcessId))\" } else { Write-Host '  Watcher           : NOT RUNNING - the heartbeat should start it within 5'; Write-Host '                      minutes, or run Install.cmd to start it now.' }; $t = Get-ScheduledTask -TaskName ArchonLauncher -ErrorAction SilentlyContinue; if($t){ Write-Host '  Scheduled task    : installed' } else { Write-Host '  Scheduled task    : NOT INSTALLED - run Install.cmd' }"
+rem The ProcessId test is not paranoia: without it this check always reports a
+rem running watcher, even with nothing installed at all. This very command line
+rem contains the text *ArchonLauncher.ps1* as its own search pattern, so the
+rem query matches the process running the query. Install.ps1 and Uninstall.ps1
+rem exclude $PID for the same reason.
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$w = Get-CimInstance Win32_Process -Filter \"Name='powershell.exe'\" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like '*ArchonLauncher.ps1*' -and $_.ProcessId -ne $PID } | Select-Object -First 1; if($w){ Write-Host \"  Watcher           : RUNNING (pid $($w.ProcessId))\" } else { Write-Host '  Watcher           : NOT RUNNING - the heartbeat should start it within 5'; Write-Host '                      minutes, or run Install.cmd to start it now.' }; $t = Get-ScheduledTask -TaskName ArchonLauncher -ErrorAction SilentlyContinue; if($t){ Write-Host '  Scheduled task    : installed' } else { Write-Host '  Scheduled task    : NOT INSTALLED - run Install.cmd' }"
 
 echo.
 echo   Recent activity
