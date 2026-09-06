@@ -90,16 +90,20 @@ current user only.
 1. Download the zip and **extract it** (right-click → Extract All). Don't run it
    from inside the zip.
 2. Double-click **`Install.cmd`**.
-3. Answer the three questions it asks, and you're done.
+3. Answer the four questions it asks, and you're done.
 
-It asks each of these in turn, and every one of them can be changed later by
-running `Install.cmd` again:
+It asks these in turn, and the last three can all be changed later by running
+`Install.cmd` again:
 
 ```
-  Launch WowUp with WoW too?          [Y/N]
-  Launch CurseForge with WoW too?     [Y/N]
-  Close them again when you quit WoW? [Y/N]
+  Install Archon Launcher?                            [Y/N]
+  Launch WowUp with WoW too?                          [Y/N]
+  Launch CurseForge with WoW too?                     [Y/N]
+  Do you want to close all of them when you close WoW? [Y/N]
 ```
+
+Answering **N** to the first one cancels immediately, without touching a single
+file.
 
 Archon is not asked about — starting it is the whole point of the tool. The two
 managers are asked about regardless of what you have installed, and saying yes
