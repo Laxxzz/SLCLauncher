@@ -6,7 +6,7 @@
     Scheduled task name. Default "ArchonLauncher".
 
 .PARAMETER KeepFiles
-    Leave %LOCALAPPDATA%\ArchonLauncher (script and log) in place.
+    Leave %LOCALAPPDATA%\ArchonLauncher (script, settings and log) in place.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\Uninstall.ps1
@@ -35,7 +35,8 @@ if ($task) {
 
 # ------------------------------------------------- any running watcher ------
 $running = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-           Where-Object { $_.CommandLine -like '*ArchonLauncher.ps1*' -and $_.ProcessId -ne $PID }
+           Where-Object { ($_.CommandLine -like '*ArchonWatcher.ps1*' -or
+                           $_.CommandLine -like '*ArchonLauncher.ps1*') -and $_.ProcessId -ne $PID }
 
 if ($running) {
     foreach ($p in $running) {
@@ -44,6 +45,25 @@ if ($running) {
     }
 } else {
     Write-Host "  no watcher process running"
+}
+
+# -------------------------------------------------------- the settings app --
+# An open settings window holds ArchonLauncher.exe, which would stop the
+# folder being deleted -- and would go on offering settings for nothing.
+Get-Process -Name 'ArchonLauncher' -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -eq (Join-Path $installDir 'ArchonLauncher.exe') } |
+    ForEach-Object {
+        Stop-Process -Id $_.Id -Force
+        $null = $_.WaitForExit(5000)
+        Write-Host "  closed the settings window (pid $($_.Id))"
+    }
+
+# Removed even with -KeepFiles: it opens settings for a watcher that no
+# longer runs, so leaving it would only suggest the tool is still installed.
+$shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Archon Launcher.lnk'
+if (Test-Path $shortcut) {
+    Remove-Item $shortcut -Force
+    Write-Host "  Start menu shortcut removed"
 }
 
 # ------------------------------------------------------------- the files ----
@@ -55,4 +75,4 @@ if ($KeepFiles) {
 }
 
 Write-Host ""
-Write-Host "Done. Archon, WowUp and CurseForge were not touched." -ForegroundColor Green
+Write-Host "Done. The apps it started were not touched." -ForegroundColor Green

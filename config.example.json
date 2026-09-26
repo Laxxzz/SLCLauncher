@@ -1,12 +1,16 @@
 {
-  "ArchonExe":          "",
-  "WowUpExe":           "",
-  "CurseForgeExe":      "",
-  "LaunchWowUp":        true,
-  "LaunchCurseForge":   true,
-  "GamePattern":        "^Wow(Classic|T|B)?$",
-  "PollSeconds":        1,
-  "LaunchDelaySeconds": 3,
-  "QuitWithWow":        false,
-  "QuitGraceSeconds":   5
+  "ArchonExe":            "",
+  "WowUpExe":             "",
+  "CurseForgeExe":        "",
+  "RaiderIOExe":          "",
+  "WowUtilsBridgeExe":    "",
+  "LaunchWowUp":          true,
+  "LaunchCurseForge":     true,
+  "LaunchRaiderIO":       true,
+  "LaunchWowUtilsBridge": true,
+  "GamePattern":          "^Wow(Classic|T|B)?$",
+  "PollSeconds":          1,
+  "LaunchDelaySeconds":   3,
+  "QuitWithWow":          false,
+  "QuitGraceSeconds":     5
 }

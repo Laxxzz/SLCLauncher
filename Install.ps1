@@ -4,10 +4,13 @@
 
 .DESCRIPTION
     Copies the watcher into %LOCALAPPDATA%\ArchonLauncher, registers a scheduled
-    task that starts it at logon, and starts it immediately.
+    task that starts it at logon, and starts it immediately. Also builds
+    ArchonLauncher.exe -- the settings app -- beside it and adds that to the
+    Start menu as "Archon Launcher".
 
     No administrator rights are required -- the task runs as the current user
-    only. Re-running this script safely overwrites a previous install.
+    only. Re-running this script safely overwrites a previous install, and keeps
+    the settings already chosen in the settings app.
 
 .PARAMETER TaskName
     Scheduled task name. Default "ArchonLauncher".
@@ -20,6 +23,15 @@
 
 .PARAMETER NoCurseForge
     Never start CurseForge, even when it is installed.
+
+.PARAMETER NoRaiderIO
+    Never start the Raider.IO client, even when it is installed.
+
+.PARAMETER NoWowUtilsBridge
+    Never start WowUtils Bridge, even when it is installed.
+
+.PARAMETER OpenSettings
+    Open the settings app once installed. Install.cmd passes this.
 
 .PARAMETER HeartbeatMinutes
     How often Task Scheduler re-checks that the watcher is alive, restarting it
@@ -35,22 +47,30 @@ param(
     [switch] $QuitWithWow,
     [switch] $NoWowUp,
     [switch] $NoCurseForge,
+    [switch] $NoRaiderIO,
+    [switch] $NoWowUtilsBridge,
+    [switch] $OpenSettings,
     [int]    $HeartbeatMinutes = 5
 )
 
 $ErrorActionPreference = 'Stop'
 
 $installDir = Join-Path $env:LOCALAPPDATA 'ArchonLauncher'
-$target     = Join-Path $installDir 'ArchonLauncher.ps1'
-$source     = Join-Path $PSScriptRoot 'ArchonLauncher.ps1'
-$shimSource = Join-Path $PSScriptRoot 'RunHidden.vbs'
+$source     = Join-Path $PSScriptRoot 'ArchonWatcher.ps1'
 $shimTarget = Join-Path $installDir 'RunHidden.vbs'
+$cfgTarget  = Join-Path $installDir 'config.json'
+$appSource  = Join-Path $PSScriptRoot 'ArchonLauncher.cs'
+$appTarget  = Join-Path $installDir 'ArchonLauncher.exe'
+$iconSource = Join-Path $PSScriptRoot 'ArchonLauncher.ico'
+$shortcut   = Join-Path ([Environment]::GetFolderPath('Programs')) 'Archon Launcher.lnk'
 
-if (-not (Test-Path $source)) {
-    throw "ArchonLauncher.ps1 not found next to this installer ($PSScriptRoot)"
-}
-if (-not (Test-Path $shimSource)) {
-    throw "RunHidden.vbs not found next to this installer ($PSScriptRoot)"
+# The .cs file is compiled rather than copied, and the icon is both embedded
+# in the program and copied beside it for the window to use.
+$payload = @('ArchonWatcher.ps1', 'RunHidden.vbs', 'ArchonLauncherOptions.ps1', 'ArchonLauncher.ico')
+foreach ($f in ($payload + 'ArchonLauncher.cs')) {
+    if (-not (Test-Path (Join-Path $PSScriptRoot $f))) {
+        throw "$f not found next to this installer ($PSScriptRoot)"
+    }
 }
 
 $version = 'unknown'
@@ -62,53 +82,155 @@ Write-Host "Installing ArchonLauncher $version..." -ForegroundColor Cyan
 
 # ------------------------------------------------------------ copy payload --
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-Copy-Item $source $target -Force
-Write-Host "  script  -> $target"
-Copy-Item $shimSource $shimTarget -Force
-Write-Host "  shim    -> $shimTarget"
 
-$srcCfg = Join-Path $PSScriptRoot 'config.json'
-if (Test-Path $srcCfg) {
-    Copy-Item $srcCfg (Join-Path $installDir 'config.json') -Force
-    Write-Host "  config  -> $installDir\config.json"
+# An open settings window holds ArchonLauncher.exe open, and the build below
+# has to replace it. Close it rather than fail halfway through an install.
+Get-Process -Name 'ArchonLauncher' -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -eq $appTarget } |
+    ForEach-Object {
+        Write-Host "  closing the open settings window (pid $($_.Id))"
+        Stop-Process -Id $_.Id -Force
+        $null = $_.WaitForExit(5000)
+    }
+
+foreach ($f in $payload) {
+    Copy-Item (Join-Path $PSScriptRoot $f) (Join-Path $installDir $f) -Force
+}
+Write-Host "  files   -> $installDir"
+
+# Up to 1.4.1 the watcher was ArchonLauncher.ps1. That name now belongs to the
+# settings app, so the old file goes rather than sitting beside it looking
+# like the thing to run. A copy still running is stopped further down.
+$oldWatcher = Join-Path $installDir 'ArchonLauncher.ps1'
+if (Test-Path $oldWatcher) { Remove-Item -LiteralPath $oldWatcher -Force }
+
+# ------------------------------------------------------------- settings app --
+# Built here rather than shipped: a compiled program downloaded from the
+# internet is exactly what SmartScreen and antivirus look hardest at, while
+# one built on this machine from the .cs file beside this installer is plainly
+# what it says it is. The compiler is part of the .NET Framework that every
+# copy of Windows 10 and 11 includes.
+$csc = @('Framework64', 'Framework') |
+       ForEach-Object { Join-Path $env:WINDIR "Microsoft.NET\$_\v4.0.30319\csc.exe" } |
+       Where-Object { Test-Path $_ } |
+       Select-Object -First 1
+if (-not $csc) {
+    throw 'cannot build ArchonLauncher.exe: the .NET Framework 4 compiler (csc.exe) was not found'
 }
 
-# ------------------------------------------------------ what will be started --
-# Report the outcome rather than just the answers, so the line cannot claim
-# WowUp is on while an installed config.json quietly turns it off. Switches
-# win over the file, exactly as they do in the watcher.
-$launch = @{ WowUp = $true; CurseForge = $true }
-if (Test-Path $srcCfg) {
+# Compiled against the PowerShell this machine actually has, since the settings
+# window runs inside the program.
+$sma = [System.Management.Automation.PSObject].Assembly.Location
+$cscOut = & $csc /nologo /target:winexe /optimize+ "/out:$appTarget" "/win32icon:$iconSource" `
+              "/reference:$sma" /reference:System.Windows.Forms.dll $appSource 2>&1
+if ($LASTEXITCODE -ne 0) {
+    $cscOut | ForEach-Object { Write-Host "    $_" -ForegroundColor Yellow }
+    throw "building ArchonLauncher.exe failed (csc exit code $LASTEXITCODE)"
+}
+Write-Host "  app     -> $appTarget"
+
+# ---------------------------------------------------------------- settings --
+# The installed config.json is where the settings app keeps your choices, so
+# a reinstall edits it rather than replacing it: anything set there survives,
+# and only what this install actually says overrides it. In order:
+#
+#   1. the installed config.json, as the settings app last left it
+#   2. a config.json next to this installer, key by key
+#   3. switches baked into the task by an older version (migrated, see below)
+#   4. switches given to this install
+function Read-JsonFile {
+    param([string]$Path)
+    if (-not (Test-Path $Path)) { return $null }
     try {
-        $json = Get-Content $srcCfg -Raw | ConvertFrom-Json
-        foreach ($n in @('WowUp', 'CurseForge')) {
-            $v = $json."Launch$n"
-            if ($null -ne $v -and "$v" -ne '') {
-                $launch[$n] = @('1', 'true', 'yes', 'on') -contains "$v".Trim().ToLowerInvariant()
-            }
-        }
+        return (Get-Content $Path -Raw | ConvertFrom-Json)
     } catch {
-        # An unreadable config is the watcher's problem to report, not ours.
+        Write-Host "  ignoring unreadable $Path" -ForegroundColor Yellow
+        return $null
     }
 }
-if ($NoWowUp)      { $launch.WowUp      = $false }
-if ($NoCurseForge) { $launch.CurseForge = $false }
 
-# Archon is stated flatly and the "if installed" caveat covers only the two
+$config = Read-JsonFile $cfgTarget
+if (-not $config) { $config = New-Object PSObject }
+
+function Set-Setting {
+    param([string]$Name, $Value)
+    $config | Add-Member -NotePropertyName $Name -NotePropertyValue $Value -Force
+}
+
+$srcCfg  = Join-Path $PSScriptRoot 'config.json'
+$fromSrc = Read-JsonFile $srcCfg
+if ($fromSrc) {
+    foreach ($p in $fromSrc.PSObject.Properties) { Set-Setting $p.Name $p.Value }
+    Write-Host "  applied -> settings from $srcCfg"
+}
+
+# Up to 1.4.1 the installer's answers were switches on the task's command line,
+# where they outranked config.json. The task is re-registered below without
+# them, so carry them into the file first -- otherwise an upgrade would quietly
+# turn back on an app you had said no to.
+$legacy = @{
+    '-NoWowUp'      = @('LaunchWowUp',      $false)
+    '-NoCurseForge' = @('LaunchCurseForge', $false)
+    '-QuitWithWow'  = @('QuitWithWow',      $true)
+}
+$oldTask = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+if ($oldTask) {
+    $oldArgs = " $(@($oldTask.Actions)[0].Arguments) "
+    foreach ($switch in $legacy.Keys) {
+        if ($oldArgs -like "* $switch *") { Set-Setting $legacy[$switch][0] $legacy[$switch][1] }
+    }
+}
+
+if ($QuitWithWow)      { Set-Setting 'QuitWithWow'          $true }
+if ($NoWowUp)          { Set-Setting 'LaunchWowUp'          $false }
+if ($NoCurseForge)     { Set-Setting 'LaunchCurseForge'     $false }
+if ($NoRaiderIO)       { Set-Setting 'LaunchRaiderIO'       $false }
+if ($NoWowUtilsBridge) { Set-Setting 'LaunchWowUtilsBridge' $false }
+
+[System.IO.File]::WriteAllText($cfgTarget, (ConvertTo-Json -InputObject $config -Depth 5),
+                               (New-Object System.Text.UTF8Encoding($false)))
+Write-Host "  config  -> $cfgTarget"
+
+# ------------------------------------------------------ what will be started --
+# Report the outcome from the file just written, read the way the watcher reads
+# it, so this line cannot disagree with what actually happens.
+function Test-On {
+    param($Value, [bool]$Default)
+    if ($null -eq $Value -or "$Value" -eq '') { return $Default }
+    if ($Value -is [bool]) { return $Value }
+    return (@('1', 'true', 'yes', 'on') -contains "$Value".Trim().ToLowerInvariant())
+}
+
+# Archon is stated flatly and the "if installed" caveat covers only the
 # optional apps, since Archon is the point of the tool rather than something
 # you might happen to have.
 $optional = @()
-if ($launch.WowUp)      { $optional += 'WowUp' }
-if ($launch.CurseForge) { $optional += 'CurseForge' }
-if ($optional.Count -eq 0) {
-    Write-Host "  starts  -> Archon only"
-} else {
-    Write-Host "  starts  -> Archon, plus $($optional -join ' and ') if installed"
+foreach ($a in @(@('WowUp', 'LaunchWowUp'), @('CurseForge', 'LaunchCurseForge'),
+                 @('Raider.IO', 'LaunchRaiderIO'), @('WowUtils Bridge', 'LaunchWowUtilsBridge'))) {
+    if (Test-On $config.($a[1]) $true) { $optional += $a[0] }
 }
+$ownCount = @($config.CustomApps | Where-Object {
+    $_ -and "$($_.Path)".Trim() -and (Test-On $_.Enabled $true)
+}).Count
+
+$line = 'Archon'
+if ($optional.Count -eq 1) {
+    $line += ", plus $($optional[0]) if installed"
+} elseif ($optional.Count -gt 1) {
+    $line += ', plus ' + ($optional[0..($optional.Count - 2)] -join ', ') +
+             " and $($optional[-1]) if installed"
+}
+if ($ownCount -eq 1)     { $line += ', and 1 program of your own' }
+elseif ($ownCount -gt 1) { $line += ", and $ownCount programs of your own" }
+Write-Host "  starts  -> $line"
+if (Test-On $config.QuitWithWow $false) { Write-Host '  closes  -> all of them when WoW closes' }
 
 # --------------------------------------------------- stop any running copy --
+# Both names: an upgrade from 1.4.x finds the watcher running as
+# ArchonLauncher.ps1.
 Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like '*ArchonLauncher.ps1*' -and $_.ProcessId -ne $PID } |
+    Where-Object { ($_.CommandLine -like '*ArchonWatcher.ps1*' -or
+                    $_.CommandLine -like '*ArchonLauncher.ps1*') -and $_.ProcessId -ne $PID } |
     ForEach-Object {
         Write-Host "  stopping running watcher (pid $($_.ProcessId))"
         Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
@@ -119,14 +241,13 @@ Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction Silen
 # Scheduler gives a console-subsystem process a console window every time it
 # fires, which flashes on screen. wscript.exe starts PowerShell with no window
 # at all. See the comments in RunHidden.vbs.
+#
+# No switches follow the shim any more. Every setting lives in config.json,
+# which the settings app edits and the watcher rereads when it changes; a
+# switch here would outrank the file and silently undo whatever was chosen there.
 $wscript = Join-Path $env:SystemRoot 'System32\wscript.exe'
 
-$argLine = "`"$shimTarget`""
-if ($QuitWithWow)  { $argLine += ' -QuitWithWow' }
-if ($NoWowUp)      { $argLine += ' -NoWowUp' }
-if ($NoCurseForge) { $argLine += ' -NoCurseForge' }
-
-$action = New-ScheduledTaskAction -Execute $wscript -Argument $argLine
+$action = New-ScheduledTaskAction -Execute $wscript -Argument "`"$shimTarget`""
 
 # Two triggers, deliberately.
 #
@@ -169,10 +290,19 @@ Register-ScheduledTask `
     -Trigger     $triggers `
     -Principal   $principal `
     -Settings    $settings `
-    -Description 'Starts the Archon App, WowUp and CurseForge when World of Warcraft launches.' `
+    -Description 'Runs the Archon Launcher watcher, which starts the Archon App and the other apps chosen in Archon Launcher when World of Warcraft launches.' `
     -Force | Out-Null
 
 Write-Host "  task    -> $TaskName (at logon, hidden, self-healing every ${HeartbeatMinutes}m)"
+
+# --------------------------------------------------------- Start menu entry --
+$shell = New-Object -ComObject WScript.Shell
+$lnk = $shell.CreateShortcut($shortcut)
+$lnk.TargetPath       = $appTarget
+$lnk.WorkingDirectory = $installDir
+$lnk.Description      = 'Choose what starts with World of Warcraft'
+$lnk.Save()
+Write-Host "  menu    -> Start menu, 'Archon Launcher'"
 
 Start-ScheduledTask -TaskName $TaskName
 
@@ -183,7 +313,7 @@ $watcher = $null
 foreach ($attempt in 1..10) {
     Start-Sleep -Milliseconds 700
     $watcher = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-               Where-Object { $_.CommandLine -like '*ArchonLauncher.ps1*' } |
+               Where-Object { $_.CommandLine -like '*ArchonWatcher.ps1*' } |
                Select-Object -First 1
     if ($watcher) { break }
 }
@@ -198,4 +328,11 @@ if ($watcher) {
 }
 Write-Host "  log      : $installDir\launcher.log"
 Write-Host ""
-Write-Host "Launch WoW to test. To remove: .\Uninstall.ps1" -ForegroundColor Cyan
+
+if ($OpenSettings) {
+    Start-Process -FilePath $appTarget
+    Write-Host "Choose what starts with WoW in the Archon Launcher window that just opened." -ForegroundColor Cyan
+    Write-Host "Open it again any time from the Start menu: Archon Launcher." -ForegroundColor Cyan
+} else {
+    Write-Host "Launch WoW to test. Change settings from the Start menu: Archon Launcher." -ForegroundColor Cyan
+}

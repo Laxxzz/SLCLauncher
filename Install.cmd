@@ -4,44 +4,33 @@ title Archon Launcher - Install
 
 echo.
 echo   Archon Launcher
-echo   Starts the Archon App - plus WowUp and CurseForge, if you have them -
-echo   when World of Warcraft launches.
+echo   Starts the Archon App - plus your addon manager, Raider.IO, WowUtils
+echo   Bridge and anything else you choose - when World of Warcraft launches.
 echo   ---------------------------------------------------------------------
 echo.
 
-rem Arguments passed on the command line win; otherwise ask.
+rem Arguments passed on the command line win, and mean a scripted install:
+rem they go straight to Install.ps1 and no window is opened.
 rem
-rem Both managers are asked about regardless of what is installed. Saying yes
-rem to one you don't have costs nothing -- the watcher logs "not installed -
-rem skipping" and carries on -- and detecting it here would mean a second copy
-rem of the watcher's whole search, free to drift out of step with it.
+rem Otherwise there is one question here, and every other choice is made in
+rem Archon Launcher, the settings app the installer opens at the end -- the
+rem same one the Start menu opens later. Asking here as well would mean two
+rem places that set the same things and could disagree about them.
 rem
 rem choice sets errorlevel 1 for Y and 2 for N, and "if errorlevel 2" is true
-rem for anything at or above 2 -- so "if not errorlevel 2" is the Y branch.
+rem for anything at or above 2.
 set "OPTS=%*"
+set "OPENED="
 if not "%OPTS%"=="" goto run
 
 choice /C YN /N /M "  Install Archon Launcher?  [Y/N] "
 if errorlevel 2 goto cancelled
-
-echo.
-choice /C YN /N /M "  Launch WowUp with WoW too?  [Y/N] "
-if not errorlevel 2 goto askcurse
-set "OPTS=%OPTS% -NoWowUp"
-
-:askcurse
-choice /C YN /N /M "  Launch CurseForge with WoW too?  [Y/N] "
-if not errorlevel 2 goto askquit
-set "OPTS=%OPTS% -NoCurseForge"
-
-:askquit
-choice /C YN /N /M "  Do you want to close all of them when you close WoW?  [Y/N] "
-if errorlevel 2 goto run
-set "OPTS=%OPTS% -QuitWithWow"
+set "OPTS=-OpenSettings"
+set "OPENED=1"
 
 :run
 rem Clear the "downloaded from the internet" mark so the scripts can run. This
-rem sits after the questions so that cancelling really does leave every file
+rem sits after the question so that cancelling really does leave every file
 rem exactly as it was, and on this side of :run so a scripted install with
 rem arguments still gets it.
 powershell -NoProfile -ExecutionPolicy Bypass -Command "Get-ChildItem -LiteralPath '%~dp0.' -Recurse -File -ErrorAction SilentlyContinue | Unblock-File -ErrorAction SilentlyContinue" >nul 2>&1
@@ -51,12 +40,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Install.ps1" %OPTS%
 set "RC=%ERRORLEVEL%"
 
 echo.
-if "%RC%"=="0" (
-  echo   All set - launch WoW to test it.
+if not "%RC%"=="0" goto failed
+if defined OPENED (
+  echo   All set - pick your apps in the Archon Launcher window, then launch WoW.
 ) else (
-  echo   Install failed with exit code %RC%.
-  echo   Check the messages above, then see README.md.
+  echo   All set - launch WoW to test it.
 )
+goto done
+
+:failed
+echo   Install failed with exit code %RC%.
+echo   Check the messages above, then see README.md.
 goto done
 
 :cancelled
