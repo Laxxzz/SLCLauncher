@@ -1,11 +1,11 @@
 @echo off
 setlocal
-title Archon Launcher - Install
+title SLC Launcher - Install
 
 echo.
-echo   Archon Launcher
-echo   Starts the Archon App - plus your addon manager, Raider.IO, WowUtils
-echo   Bridge and anything else you choose - when World of Warcraft launches.
+echo   SLC Launcher
+echo   A launcher toolkit for your World of Warcraft tools: starts Archon,
+echo   your addon manager, Raider.IO and anything else you choose with the game.
 echo   ---------------------------------------------------------------------
 echo.
 
@@ -13,7 +13,7 @@ rem Arguments passed on the command line win, and mean a scripted install:
 rem they go straight to Install.ps1 and no window is opened.
 rem
 rem Otherwise there is one question here, and every other choice is made in
-rem Archon Launcher, the settings app the installer opens at the end -- the
+rem SLC Launcher, the settings app the installer opens at the end -- the
 rem same one the Start menu opens later. Asking here as well would mean two
 rem places that set the same things and could disagree about them.
 rem
@@ -23,7 +23,7 @@ set "OPTS=%*"
 set "OPENED="
 if not "%OPTS%"=="" goto run
 
-choice /C YN /N /M "  Install Archon Launcher?  [Y/N] "
+choice /C YN /N /M "  Install SLC Launcher?  [Y/N] "
 if errorlevel 2 goto cancelled
 set "OPTS=-OpenSettings"
 set "OPENED=1"
@@ -42,7 +42,7 @@ set "RC=%ERRORLEVEL%"
 echo.
 if not "%RC%"=="0" goto failed
 if defined OPENED (
-  echo   All set - pick your apps in the Archon Launcher window, then launch WoW.
+  echo   All set - pick your apps in the SLC Launcher window, then launch WoW.
 ) else (
   echo   All set - launch WoW to test it.
 )

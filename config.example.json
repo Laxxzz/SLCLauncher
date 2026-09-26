@@ -4,6 +4,7 @@
   "CurseForgeExe":        "",
   "RaiderIOExe":          "",
   "WowUtilsBridgeExe":    "",
+  "LaunchArchon":         true,
   "LaunchWowUp":          true,
   "LaunchCurseForge":     true,
   "LaunchRaiderIO":       true,

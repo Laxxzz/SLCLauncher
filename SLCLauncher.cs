@@ -1,11 +1,11 @@
-// ArchonLauncher.exe -- the Archon Launcher settings app.
+// SLCLauncher.exe -- the SLC Launcher settings app.
 //
-// This is what you open. It is not the watcher: that is ArchonWatcher.ps1,
+// This is what you open. It is not the watcher: that is SLCWatcher.ps1,
 // which the scheduled task keeps running in the background with no window and
 // no tray icon. This program only shows the settings window, and exits when
 // the window is closed.
 //
-// The window itself is ArchonLauncherOptions.ps1, run inside this process
+// The window itself is SLCLauncherSettings.ps1, run inside this process
 // rather than handed to powershell.exe. That keeps it a real application --
 // its own name in Task Manager, its own icon on the taskbar, no console window
 // -- while the settings logic stays in the same language as the watcher that
@@ -25,8 +25,8 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
-[assembly: AssemblyTitle("Archon Launcher")]
-[assembly: AssemblyProduct("Archon Launcher")]
+[assembly: AssemblyTitle("SLC Launcher")]
+[assembly: AssemblyProduct("SLC Launcher")]
 [assembly: AssemblyDescription("Choose what starts with World of Warcraft")]
 
 static class Program
@@ -44,7 +44,7 @@ static class Program
         // already open to the front rather than a second copy that could
         // save over the first.
         bool first;
-        using (var mutex = new Mutex(true, @"Local\ArchonLauncherSettings", out first))
+        using (var mutex = new Mutex(true, @"Local\SLCLauncherSettings", out first))
         {
             if (!first)
             {
@@ -70,12 +70,12 @@ static class Program
     static int RunSettingsWindow()
     {
         string dir    = AppDomain.CurrentDomain.BaseDirectory;
-        string script = Path.Combine(dir, "ArchonLauncherOptions.ps1");
+        string script = Path.Combine(dir, "SLCLauncherSettings.ps1");
         if (!File.Exists(script))
         {
-            MessageBox.Show("ArchonLauncherOptions.ps1 is missing from " + dir + ".\n\n" +
+            MessageBox.Show("SLCLauncherSettings.ps1 is missing from " + dir + ".\n\n" +
                             "Run Install.cmd again to repair it.",
-                            "Archon Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            "SLC Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return 1;
         }
 
@@ -116,6 +116,6 @@ static class Program
     static void ShowFailure(string detail)
     {
         MessageBox.Show("The settings window could not be opened.\n\n" + detail,
-                        "Archon Launcher", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        "SLC Launcher", MessageBoxButtons.OK, MessageBoxIcon.Error);
     }
 }

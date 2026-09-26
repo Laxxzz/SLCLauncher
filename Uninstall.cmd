@@ -1,16 +1,16 @@
 @echo off
 setlocal
-title Archon Launcher - Uninstall
+title SLC Launcher - Uninstall
 
 echo.
-echo   Archon Launcher - Uninstall
+echo   SLC Launcher - Uninstall
 echo   ---------------------------
 echo.
 echo   This removes the scheduled task and stops the watcher.
-echo   The apps it starts - Archon, the addon managers and the rest - are not touched.
+echo   The apps it starts are not touched - only SLC Launcher itself is removed.
 echo.
 
-choice /C YN /N /M "  Remove Archon Launcher?  [Y/N] "
+choice /C YN /N /M "  Remove SLC Launcher?  [Y/N] "
 if errorlevel 2 goto cancelled
 
 echo.

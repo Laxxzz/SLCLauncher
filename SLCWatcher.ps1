@@ -1,23 +1,23 @@
 <#
 .SYNOPSIS
-    The watcher: starts the Archon App -- and optionally WowUp, CurseForge, Raider.IO,
-    WowUtils Bridge and programs of your own -- when World of Warcraft launches.
+    The SLC Launcher watcher: starts your World of Warcraft tools -- Archon,
+    WowUp, CurseForge, Raider.IO, WowUtils Bridge and programs of your own --
+    when the game launches, and can close them again when it exits.
 
 .DESCRIPTION
-    Archon's built-in "launch with game" setting only opens the window of an
-    already-running instance -- there is no resident component to cold-start it.
-    This watcher fills that gap: it polls for the WoW process and starts Archon
-    when it appears.
+    None of these apps can start themselves with the game. The addon managers
+    and the others have no such setting at all, and Archon's "launch with game"
+    only opens the window of an already-running instance -- there is no
+    resident component to cold-start it. This watcher fills that gap: it polls
+    for the WoW process and starts the chosen apps when it appears.
 
-    The same gap applies to the addon managers and the other companion apps,
-    which have no launch-with-game feature at all, so the watcher can start them
-    alongside Archon. Each is launched only if it is installed and not already
-    running; one that is not installed is simply skipped. Any other program can
-    be added by path, through the settings app or the CustomApps key.
+    Each is launched only if it is chosen, installed and not already running;
+    one that is not installed is simply skipped. Any other program can be added
+    by path, through the settings app or the CustomApps key.
 
     This is the part that runs in the background, with no window and no tray
     icon, started at logon by the scheduled task. It is not what you open to
-    change settings -- that is ArchonLauncher.exe.
+    change settings -- that is SLCLauncher.exe.
 
     Settings are read from config.json next to this script, if present, and
     re-read whenever that file changes -- the settings app relies on this, so
@@ -38,6 +38,9 @@
 
 .PARAMETER WowUtilsBridgeExe
     Full path to "WowUtils.Bridge.App.exe". Auto-detected if omitted.
+
+.PARAMETER NoArchon
+    Never start the Archon App, even when it is installed.
 
 .PARAMETER NoWowUp
     Never start WowUp, even when it is installed.
@@ -71,9 +74,9 @@
     close as "hide to the tray" -- WowUp by default -- still running.
 
 .EXAMPLE
-    .\ArchonWatcher.ps1
-    .\ArchonWatcher.ps1 -GamePattern '^Wow$' -QuitWithWow
-    .\ArchonWatcher.ps1 -NoCurseForge
+    .\SLCWatcher.ps1
+    .\SLCWatcher.ps1 -GamePattern '^Wow$' -QuitWithWow
+    .\SLCWatcher.ps1 -NoCurseForge
 #>
 [CmdletBinding()]
 param(
@@ -82,6 +85,7 @@ param(
     [string] $CurseForgeExe,
     [string] $RaiderIOExe,
     [string] $WowUtilsBridgeExe,
+    [switch] $NoArchon,
     [switch] $NoWowUp,
     [switch] $NoCurseForge,
     [switch] $NoRaiderIO,
@@ -97,7 +101,7 @@ $ErrorActionPreference = 'Stop'
 
 # The single source of truth for the version. Install.ps1 and ViewLog.cmd read
 # it back out of this file rather than keeping copies that can drift.
-$ArchonLauncherVersion = '1.5.0'
+$SLCLauncherVersion = '2.0.0'
 
 # ------------------------------------------------------------- single copy --
 # Only one watcher may run at a time. The task starts this script from both a
@@ -107,7 +111,7 @@ $ArchonLauncherVersion = '1.5.0'
 # pollers and spamming the log.
 $createdNew = $false
 $script:SingletonMutex = New-Object System.Threading.Mutex(
-    $true, 'Local\ArchonLauncherWatcher', [ref]$createdNew)
+    $true, 'Local\SLCLauncherWatcher', [ref]$createdNew)
 if (-not $createdNew) { exit 0 }
 
 # Read-Config runs again on every reload, from inside a function, where
@@ -138,6 +142,7 @@ function Read-Config {
         CurseForgeExe        = ''
         RaiderIOExe          = ''
         WowUtilsBridgeExe    = ''
+        LaunchArchon         = $true
         LaunchWowUp          = $true
         LaunchCurseForge     = $true
         LaunchRaiderIO       = $true
@@ -148,7 +153,7 @@ function Read-Config {
         LaunchDelaySeconds   = 3
         QuitWithWow          = $false
         QuitGraceSeconds     = 5
-        LogFile              = Join-Path $env:LOCALAPPDATA 'ArchonLauncher\launcher.log'
+        LogFile              = Join-Path $env:LOCALAPPDATA 'SLCLauncher\launcher.log'
         MaxLogBytes          = 1MB
     }
 
@@ -173,6 +178,7 @@ function Read-Config {
     if ($LaunchDelaySeconds -ge 0) { $c.LaunchDelaySeconds   = $LaunchDelaySeconds }
     if ($QuitGraceSeconds -ge 0)   { $c.QuitGraceSeconds     = $QuitGraceSeconds }
     if ($QuitWithWow)              { $c.QuitWithWow          = $true }
+    if ($NoArchon)                 { $c.LaunchArchon         = $false }
     if ($NoWowUp)                  { $c.LaunchWowUp          = $false }
     if ($NoCurseForge)             { $c.LaunchCurseForge     = $false }
     if ($NoRaiderIO)               { $c.LaunchRaiderIO       = $false }
@@ -185,7 +191,7 @@ function Read-Config {
     if ($c.LaunchDelaySeconds -lt 0) { $c.LaunchDelaySeconds = 0 }
     if ($c.QuitGraceSeconds   -lt 0) { $c.QuitGraceSeconds   = 0 }
 
-    foreach ($k in @('QuitWithWow', 'LaunchWowUp', 'LaunchCurseForge',
+    foreach ($k in @('QuitWithWow', 'LaunchArchon', 'LaunchWowUp', 'LaunchCurseForge',
                      'LaunchRaiderIO', 'LaunchWowUtilsBridge')) {
         $c[$k] = ConvertTo-Bool $c[$k]
     }
@@ -259,7 +265,6 @@ function New-Companion {
         [string]   $ProcessPrefix,
         [string[]] $Fallbacks,
         [string]   $Configured,
-        [bool]     $Required,
         [bool]     $Custom
     )
     @{
@@ -269,7 +274,6 @@ function New-Companion {
         ProcessPrefix   = $ProcessPrefix
         Fallbacks       = @($Fallbacks | Where-Object { $_ })
         Configured      = $Configured
-        Required        = $Required
         Custom          = $Custom
         Exe             = $null
         Pattern         = $null
@@ -384,22 +388,25 @@ function Set-CompanionExe {
 }
 
 function New-CompanionSet {
-    # Everything the watcher manages under one set of settings, resolved.
-    # Archon is always first, and always present.
+    # Everything the watcher manages under one set of settings, resolved. Can
+    # be empty -- nothing chosen yet -- and the watcher then simply idles.
     param([hashtable]$Config)
 
-    $set = @(New-Companion `
-        -Name 'Archon' `
-        -ExeNames @('Archon App.exe') `
-        -RegistryPattern 'Archon App' `
-        -ProcessPrefix 'Archon' `
-        -Configured $Config.ArchonExe `
-        -Required $true `
-        -Fallbacks @(
-            (Join-Path $env:ProgramFiles        'Archon App\Archon App.exe'),
-            (Join-Path ${env:ProgramFiles(x86)} 'Archon App\Archon App.exe'),
-            (Join-Path $env:LOCALAPPDATA        'Programs\Archon App\Archon App.exe')
-        ))
+    $set = @()
+
+    if ($Config.LaunchArchon) {
+        $set += New-Companion `
+            -Name 'Archon' `
+            -ExeNames @('Archon App.exe') `
+            -RegistryPattern 'Archon App' `
+            -ProcessPrefix 'Archon' `
+            -Configured $Config.ArchonExe `
+            -Fallbacks @(
+                (Join-Path $env:ProgramFiles        'Archon App\Archon App.exe'),
+                (Join-Path ${env:ProgramFiles(x86)} 'Archon App\Archon App.exe'),
+                (Join-Path $env:LOCALAPPDATA        'Programs\Archon App\Archon App.exe')
+            )
+    }
 
     if ($Config.LaunchWowUp) {
         # WowUp-CF is the maintained build and plain WowUp the older one. Either
@@ -411,7 +418,6 @@ function New-CompanionSet {
             -RegistryPattern '^WowUp' `
             -ProcessPrefix 'WowUp' `
             -Configured $Config.WowUpExe `
-            -Required $false `
             -Fallbacks @(
                 (Join-Path $env:LOCALAPPDATA        'Programs\wowup-cf\WowUp-CF.exe'),
                 (Join-Path $env:LOCALAPPDATA        'Programs\wowup\WowUp.exe'),
@@ -429,7 +435,6 @@ function New-CompanionSet {
             -RegistryPattern '^CurseForge' `
             -ProcessPrefix 'CurseForge' `
             -Configured $Config.CurseForgeExe `
-            -Required $false `
             -Fallbacks @(
                 (Join-Path $env:LOCALAPPDATA        'Programs\CurseForge Windows\CurseForge.exe'),
                 (Join-Path $env:ProgramFiles        'CurseForge Windows\CurseForge.exe'),
@@ -446,7 +451,6 @@ function New-CompanionSet {
             -RegistryPattern '^Raider\.?IO' `
             -ProcessPrefix 'RaiderIO' `
             -Configured $Config.RaiderIOExe `
-            -Required $false `
             -Fallbacks @(
                 (Join-Path $env:ProgramFiles        'RaiderIO\RaiderIO.exe'),
                 (Join-Path ${env:ProgramFiles(x86)} 'RaiderIO\RaiderIO.exe'),
@@ -461,7 +465,6 @@ function New-CompanionSet {
             -RegistryPattern '^WowUtils Bridge' `
             -ProcessPrefix 'WowUtils' `
             -Configured $Config.WowUtilsBridgeExe `
-            -Required $false `
             -Fallbacks @(
                 (Join-Path $env:LOCALAPPDATA        'Programs\WowUtils Bridge\WowUtils.Bridge.App.exe'),
                 (Join-Path $env:ProgramFiles        'WowUtils Bridge\WowUtils.Bridge.App.exe'),
@@ -474,7 +477,6 @@ function New-CompanionSet {
             -Name $a.Name `
             -ExeNames @() `
             -Configured $a.Path `
-            -Required $false `
             -Custom $true
     }
 
@@ -662,6 +664,9 @@ function Invoke-CompanionLaunch {
 }
 
 function Write-Settings {
+    if (@($script:Companions).Count -eq 0) {
+        Write-Log 'apps      : none chosen - pick some in SLC Launcher'
+    }
     foreach ($app in $script:Companions) {
         if ($app.Exe) {
             Write-Log ("{0,-10}: {1}" -f $app.Name, $app.Exe)
@@ -712,10 +717,6 @@ function Update-Settings {
         return
     }
     $set = New-CompanionSet $new
-    if (-not $set[0].Exe) {
-        Write-Log 'config.json changed but Archon cannot be located with it - keeping the current settings'
-        return
-    }
 
     # Carry over which programs of your own this watcher started, so that
     # saving mid-session does not stop quit-with-wow closing them afterwards.
@@ -747,13 +748,8 @@ if (-not (Test-GamePattern $cfg.GamePattern)) {
 
 $script:Companions = New-CompanionSet $cfg
 
-if (-not $script:Companions[0].Exe) {
-    Write-Log 'FATAL: could not locate "Archon App.exe" - set ArchonExe in config.json'
-    exit 1
-}
-
 Write-Log "watcher started (pid $PID)"
-Write-Log "version   : $ArchonLauncherVersion"
+Write-Log "version   : $SLCLauncherVersion"
 Write-Settings
 
 # The watcher can start mid-session: at logon with the game already up, or when

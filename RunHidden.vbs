@@ -10,7 +10,7 @@
 ' WScript.Shell.Run with window style 0 launches the process with no window from
 ' the outset. wscript.exe exits immediately, so the watcher outlives it and the
 ' scheduled task shows as finished; duplicate starts are prevented by the mutex
-' inside ArchonWatcher.ps1 rather than by the task's MultipleInstances policy.
+' inside SLCWatcher.ps1 rather than by the task's MultipleInstances policy.
 '
 ' Any arguments given here are passed through to the script.
 
@@ -22,7 +22,7 @@ Set shell = CreateObject("WScript.Shell")
 Set fso   = CreateObject("Scripting.FileSystemObject")
 
 scriptDir = fso.GetParentFolderName(WScript.ScriptFullName)
-target    = fso.BuildPath(scriptDir, "ArchonWatcher.ps1")
+target    = fso.BuildPath(scriptDir, "SLCWatcher.ps1")
 
 If Not fso.FileExists(target) Then
     ' Nothing sensible to do, and no console to complain to.

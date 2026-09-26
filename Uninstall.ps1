@@ -1,27 +1,27 @@
 <#
 .SYNOPSIS
-    Removes the ArchonLauncher scheduled task and stops the watcher.
+    Removes the SLCLauncher scheduled task and stops the watcher.
 
 .PARAMETER TaskName
-    Scheduled task name. Default "ArchonLauncher".
+    Scheduled task name. Default "SLCLauncher".
 
 .PARAMETER KeepFiles
-    Leave %LOCALAPPDATA%\ArchonLauncher (script, settings and log) in place.
+    Leave %LOCALAPPDATA%\SLCLauncher (script, settings and log) in place.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\Uninstall.ps1
 #>
 [CmdletBinding()]
 param(
-    [string] $TaskName = 'ArchonLauncher',
+    [string] $TaskName = 'SLCLauncher',
     [switch] $KeepFiles
 )
 
 $ErrorActionPreference = 'Stop'
 
-$installDir = Join-Path $env:LOCALAPPDATA 'ArchonLauncher'
+$installDir = Join-Path $env:LOCALAPPDATA 'SLCLauncher'
 
-Write-Host "Removing ArchonLauncher..." -ForegroundColor Cyan
+Write-Host "Removing SLC Launcher..." -ForegroundColor Cyan
 
 # ------------------------------------------------------------ the task ------
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -35,8 +35,7 @@ if ($task) {
 
 # ------------------------------------------------- any running watcher ------
 $running = Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-           Where-Object { ($_.CommandLine -like '*ArchonWatcher.ps1*' -or
-                           $_.CommandLine -like '*ArchonLauncher.ps1*') -and $_.ProcessId -ne $PID }
+           Where-Object { $_.CommandLine -like '*SLCWatcher.ps1*' -and $_.ProcessId -ne $PID }
 
 if ($running) {
     foreach ($p in $running) {
@@ -48,10 +47,10 @@ if ($running) {
 }
 
 # -------------------------------------------------------- the settings app --
-# An open settings window holds ArchonLauncher.exe, which would stop the
+# An open settings window holds SLCLauncher.exe, which would stop the
 # folder being deleted -- and would go on offering settings for nothing.
-Get-Process -Name 'ArchonLauncher' -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -eq (Join-Path $installDir 'ArchonLauncher.exe') } |
+Get-Process -Name 'SLCLauncher' -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -eq (Join-Path $installDir 'SLCLauncher.exe') } |
     ForEach-Object {
         Stop-Process -Id $_.Id -Force
         $null = $_.WaitForExit(5000)
@@ -60,7 +59,7 @@ Get-Process -Name 'ArchonLauncher' -ErrorAction SilentlyContinue |
 
 # Removed even with -KeepFiles: it opens settings for a watcher that no
 # longer runs, so leaving it would only suggest the tool is still installed.
-$shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Archon Launcher.lnk'
+$shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'SLC Launcher.lnk'
 if (Test-Path $shortcut) {
     Remove-Item $shortcut -Force
     Write-Host "  Start menu shortcut removed"
