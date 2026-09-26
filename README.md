@@ -170,6 +170,8 @@ including your settings. The apps it started are not touched.
 SLCLauncher is free. If it saves you some clicks, you can support its
 development on [Ko-fi](https://ko-fi.com/laxxz).
 
+<a href="https://ko-fi.com/laxxz"><img src="docs/kofi.png" alt="Support Laxx on Ko-fi" width="600"></a>
+
 ## License
 
 Copyright (c) 2026 Laxx. All rights reserved. You may install and use SLCLauncher
