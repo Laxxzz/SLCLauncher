@@ -10,7 +10,7 @@ when the game exits. You pick what's included in one small settings window,
 and a background watcher does the rest.
 
 It is part of the SLC family of WoW tools, alongside the SimpleLootCouncil
-addon, and wears the same look.
+addon.
 
 ![The SLC Launcher settings window](docs/settings.png)
 
