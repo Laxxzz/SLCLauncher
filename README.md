@@ -2,6 +2,8 @@
 
 **Starts your World of Warcraft tools when the game launches, and can close them when it exits.**
 
+[![Support me on Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20me-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/laxxz)
+
 SLCLauncher starts [Archon](https://www.archon.gg/), [WowUp](https://wowup.io/),
 [CurseForge](https://www.curseforge.com/), the [Raider.IO](https://raider.io/)
 client, WowUtils Bridge and any program of your own when WoW starts. You pick
@@ -28,6 +30,7 @@ rest. Part of the SLC family of WoW tools, alongside the SimpleLootCouncil addon
 - [Troubleshooting](#troubleshooting)
 - [How it works](#how-it-works)
 - [Uninstall](#uninstall)
+- [Support](#support)
 - [License](#license)
 
 ## Install
@@ -161,6 +164,11 @@ Go to **Settings → Apps → Installed apps → SLCLauncher → Uninstall**. If
 installed from the zip, run `Uninstall.cmd` instead. Either way it removes the
 task, the watcher, the Start menu entry and `%LOCALAPPDATA%\SLCLauncher`,
 including your settings. The apps it started are not touched.
+
+## Support
+
+SLCLauncher is free. If it saves you some clicks, you can support its
+development on [Ko-fi](https://ko-fi.com/laxxz).
 
 ## License
 
