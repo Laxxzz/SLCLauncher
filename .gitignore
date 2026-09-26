@@ -11,3 +11,6 @@ launcher.log.1
 # Windows
 Thumbs.db
 desktop.ini
+
+# Installer output (installer\Build-Installer.ps1)
+dist/

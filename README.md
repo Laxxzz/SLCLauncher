@@ -39,20 +39,33 @@ addon, and wears the same look.
 
 ## Install
 
-Windows 10 or 11. No administrator rights, and no typing commands.
+Windows 10 or 11. No administrator rights, nothing else to install first, and
+no typing commands.
 
-1. Download the zip and **extract it** (right-click → Extract All). Don't run it
-   from inside the zip.
-2. Double-click **`Install.cmd`** and answer **Y** to `Install SLC Launcher?`
+1. Download **`SLCLauncher-Setup-<version>.exe`** from the
+   [releases page](https://github.com/Laxxzz/SLCLauncher/releases) and run it.
+2. Click through the installer. Leave **Open SLC Launcher to choose your apps**
+   ticked on the last page.
 3. Tick what you want in the settings window that opens, and click **Save**.
 
-Answering **N** cancels without touching a single file.
+Windows may show *"Windows protected your PC"* because the installer came from
+the internet and isn't signed. Click **More info → Run anyway**.
 
-Windows may show *"Windows protected your PC"* because the file came from the
-internet. Click **More info → Run anyway**. The installer clears that mark from
-the other files itself.
+SLC Launcher then appears in **Settings → Apps → Installed apps**, where you can
+uninstall it like any other program. Running a newer Setup over the top updates
+it and keeps your settings.
 
-The installer:
+### Without the installer
+
+The zip holds the same files. Extract it (right-click → Extract All; don't run
+it from inside the zip), double-click **`Install.cmd`** and answer **Y** to
+`Install SLC Launcher?`. Answering **N** cancels without touching a single file.
+`Install.cmd` clears the downloaded-from-the-internet mark from the other files
+itself. Both ways in install exactly the same thing.
+
+### What gets installed
+
+Setup and `Install.cmd` both:
 
 - copies the watcher to `%LOCALAPPDATA%\SLCLauncher` and registers a hidden
   logon task that runs it, and starts it straight away (no reboot)
@@ -64,7 +77,7 @@ The installer:
   starts  -> Archon, WowUp, CurseForge, Raider.IO and WowUtils Bridge, if installed
 ```
 
-Running `Install.cmd` again — to update, say — keeps your settings.
+Running Setup or `Install.cmd` again — to update, say — keeps your settings.
 
 **Coming from Archon Launcher?** SLC Launcher is its new name. Installing it
 takes the old one over: your settings and log move across, and the old task,
@@ -224,7 +237,8 @@ window would; anything not mentioned keeps its current setting.
 
 ## Troubleshooting
 
-Double-click **`ViewLog.cmd`**. It shows the installed version, whether the
+Double-click **`ViewLog.cmd`**, which is in the zip and, after Setup, in
+`%LOCALAPPDATA%\SLCLauncher`. It shows the installed version, whether the
 watcher is running, and recent activity:
 
 ```
@@ -279,7 +293,10 @@ task exits as soon as it has started the watcher.
 **An app closed while the game kept running, and didn't come back.** Expected:
 the watcher acts on the game starting, not on an app disappearing.
 
-**My settings are back to the defaults.** `Uninstall.cmd` deletes
+**Setup says it could not finish installing.** It undoes what it did and names
+the file that says why: `%LOCALAPPDATA%\SLCLauncher\install.log`.
+
+**My settings are back to the defaults.** Uninstalling deletes
 `%LOCALAPPDATA%\SLCLauncher`, settings and log included. Reinstalling over the
 top instead keeps them.
 
@@ -335,6 +352,25 @@ source you can read is plainly what it says it is. The window itself is
 `SLCLauncherSettings.ps1`, run inside the program, so it shows in Task Manager
 and on the taskbar as SLC Launcher with its own icon.
 
+### The installer
+
+`SLCLauncher-Setup-<version>.exe` is an [Inno Setup](https://jrsoftware.org/isinfo.php)
+wrapper round `Install.ps1` and `Uninstall.ps1`, not a second copy of them. It
+unpacks the same files, runs `Install.ps1` hidden and logs it to `install.log`,
+and adds an entry to Settings → Apps whose uninstaller runs `Uninstall.ps1`.
+The settings app is still built on your machine, so the installer carries no
+ready-made program of its own besides Setup itself.
+
+To build it you need Inno Setup 6, on the building machine only:
+
+```powershell
+winget install --id JRSoftware.InnoSetup -e --scope user
+powershell -ExecutionPolicy Bypass -File .\installer\Build-Installer.ps1
+```
+
+That writes `dist\SLCLauncher-Setup-<version>.exe`, taking the version from
+`$SLCLauncherVersion` in `SLCWatcher.ps1`.
+
 ### What it costs
 
 Measured on a 16-core desktop with ~262 running processes, at the default
@@ -379,10 +415,14 @@ play.
 
 ## Uninstall
 
-Double-click **`Uninstall.cmd`** and confirm. It removes the task, stops the
-watcher, closes the settings window if it is open, removes the Start menu
-entry and deletes `%LOCALAPPDATA%\SLCLauncher` — settings included. The apps it
-starts are not touched.
+Open **Settings → Apps → Installed apps**, find **SLC Launcher** and choose
+**Uninstall**. If you installed from the zip, double-click **`Uninstall.cmd`**
+and confirm instead.
+
+Either way it removes the task, stops the watcher, closes the settings window
+if it is open, removes the Start menu entry and deletes
+`%LOCALAPPDATA%\SLCLauncher` — settings included. The apps it starts are not
+touched.
 
 From the command line, `-KeepFiles` leaves the folder and your settings in
 place:

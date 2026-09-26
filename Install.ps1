@@ -40,6 +40,11 @@
     How often Task Scheduler re-checks that the watcher is alive, restarting it
     if it isn't. Default 5.
 
+.PARAMETER LogPath
+    Also write everything this install prints to this file. The Setup.exe
+    installer passes this, since it runs the install with no window to show
+    the output in.
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\Install.ps1
     powershell -ExecutionPolicy Bypass -File .\Install.ps1 -NoCurseForge
@@ -54,10 +59,15 @@ param(
     [switch] $NoRaiderIO,
     [switch] $NoWowUtilsBridge,
     [switch] $OpenSettings,
-    [int]    $HeartbeatMinutes = 5
+    [int]    $HeartbeatMinutes = 5,
+    [string] $LogPath
 )
 
 $ErrorActionPreference = 'Stop'
+
+# A transcript, unlike redirecting the output, also catches Write-Host, which
+# is how everything below reports what it did.
+if ($LogPath) { Start-Transcript -LiteralPath $LogPath -Force | Out-Null }
 
 $installDir = Join-Path $env:LOCALAPPDATA 'SLCLauncher'
 $source     = Join-Path $PSScriptRoot 'SLCWatcher.ps1'
@@ -159,10 +169,11 @@ Write-Host "  files   -> $installDir"
 # one built on this machine from the .cs file beside this installer is plainly
 # what it says it is. The compiler is part of the .NET Framework that every
 # copy of Windows 10 and 11 includes.
-$csc = @('Framework64', 'Framework') |
-       ForEach-Object { Join-Path $env:WINDIR "Microsoft.NET\$_\v4.0.30319\csc.exe" } |
-       Where-Object { Test-Path $_ } |
-       Select-Object -First 1
+# Indexed rather than Select-Object -First 1, which stops the pipeline early:
+# harmless, but a -LogPath transcript records it as a TerminatingError.
+$csc = @(@('Framework64', 'Framework') |
+         ForEach-Object { Join-Path $env:WINDIR "Microsoft.NET\$_\v4.0.30319\csc.exe" } |
+         Where-Object { Test-Path $_ })[0]
 if (-not $csc) {
     throw 'cannot build SLCLauncher.exe: the .NET Framework 4 compiler (csc.exe) was not found'
 }
@@ -378,3 +389,5 @@ if ($OpenSettings) {
 } else {
     Write-Host "Launch WoW to test. Change settings from the Start menu: SLC Launcher." -ForegroundColor Cyan
 }
+
+if ($LogPath) { Stop-Transcript | Out-Null }
