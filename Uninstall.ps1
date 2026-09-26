@@ -21,7 +21,7 @@ $ErrorActionPreference = 'Stop'
 
 $installDir = Join-Path $env:LOCALAPPDATA 'SLCLauncher'
 
-Write-Host "Removing SLC Launcher..." -ForegroundColor Cyan
+Write-Host "Removing SLCLauncher..." -ForegroundColor Cyan
 
 # ------------------------------------------------------------ the task ------
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
@@ -59,10 +59,13 @@ Get-Process -Name 'SLCLauncher' -ErrorAction SilentlyContinue |
 
 # Removed even with -KeepFiles: it opens settings for a watcher that no
 # longer runs, so leaving it would only suggest the tool is still installed.
-$shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'SLC Launcher.lnk'
-if (Test-Path $shortcut) {
-    Remove-Item $shortcut -Force
-    Write-Host "  Start menu shortcut removed"
+# 'SLC Launcher.lnk' is the name it had up to 2.0.0.
+foreach ($name in 'SLCLauncher.lnk', 'SLC Launcher.lnk') {
+    $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) $name
+    if (Test-Path $shortcut) {
+        Remove-Item $shortcut -Force
+        Write-Host "  Start menu shortcut removed"
+    }
 }
 
 # ------------------------------------------------------------- the files ----

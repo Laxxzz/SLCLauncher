@@ -1,16 +1,16 @@
 @echo off
 setlocal
-title SLC Launcher - Uninstall
+title SLCLauncher - Uninstall
 
 echo.
-echo   SLC Launcher - Uninstall
+echo   SLCLauncher - Uninstall
 echo   ---------------------------
 echo.
 echo   This removes the scheduled task and stops the watcher.
-echo   The apps it starts are not touched - only SLC Launcher itself is removed.
+echo   The apps it starts are not touched - only SLCLauncher itself is removed.
 echo.
 
-choice /C YN /N /M "  Remove SLC Launcher?  [Y/N] "
+choice /C YN /N /M "  Remove SLCLauncher?  [Y/N] "
 if errorlevel 2 goto cancelled
 
 echo.

@@ -4,9 +4,9 @@
 ; out of SLCWatcher.ps1 and passes it in as AppVersion.
 ;
 ; Setup.exe is a wrapper round Install.ps1 and Uninstall.ps1 rather than a
-; second copy of what they do. Install.ps1 already knows how to take over
-; Archon Launcher, keep settings across updates, build the settings app on this
-; machine and register the logon task, and Install.cmd goes on using it, so
+; second copy of what they do. Install.ps1 already knows how to keep settings
+; across updates, build the settings app on this machine and register the
+; logon task, and Install.cmd goes on using it, so
 ; both ways in install exactly the same thing. What Setup.exe adds is the
 ; wizard, an entry in Settings > Apps, and an uninstaller.
 
@@ -17,9 +17,9 @@
 [Setup]
 ; Never change AppId: it is how an update finds the install it replaces.
 AppId={{7E5B9FD3-CF7D-429C-8CBB-FB887EC17E18}
-AppName=SLC Launcher
+AppName=SLCLauncher
 AppVersion={#AppVersion}
-AppVerName=SLC Launcher {#AppVersion}
+AppVerName=SLCLauncher {#AppVersion}
 AppPublisher=Laxxzz
 AppPublisherURL=https://github.com/Laxxzz/SLCLauncher
 AppSupportURL=https://github.com/Laxxzz/SLCLauncher/issues
@@ -47,7 +47,7 @@ CloseApplications=no
 LicenseFile=..\LICENSE
 SetupIconFile=..\SLCLauncher.ico
 UninstallDisplayIcon={app}\SLCLauncher.exe
-UninstallDisplayName=SLC Launcher
+UninstallDisplayName=SLCLauncher
 WizardStyle=modern
 Compression=lzma2
 SolidCompression=yes
@@ -55,7 +55,7 @@ OutputDir=..\dist
 OutputBaseFilename=SLCLauncher-Setup-{#AppVersion}
 
 [Messages]
-FinishedLabel=SLC Launcher is installed and watching for World of Warcraft.%n%nChoose which apps start with the game in SLC Launcher, which is in the Start menu.
+FinishedLabel=SLCLauncher is installed and watching for World of Warcraft.%n%nChoose which apps start with the game in SLCLauncher, which is in the Start menu.
 
 [Files]
 ; Kept in the install folder: the uninstaller runs Uninstall.ps1 from there,
@@ -75,7 +75,7 @@ Source: "..\SLCTheme.cs";             DestDir: "{tmp}"; Flags: ignoreversion
 Source: "..\Install.ps1";             DestDir: "{tmp}"; Flags: ignoreversion; AfterInstall: RunInstallScript
 
 [Run]
-Filename: "{app}\SLCLauncher.exe"; Description: "Open SLC Launcher to choose your apps"; Flags: postinstall nowait skipifsilent
+Filename: "{app}\SLCLauncher.exe"; Description: "Open SLCLauncher to choose your apps"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 ; -KeepFiles because the folder is removed below, after this has stopped the
@@ -110,7 +110,7 @@ begin
   // Raising here makes Setup report the failure and roll back, rather than
   // claim success for an install that has no watcher.
   if ResultCode <> 0 then
-    RaiseException('SLC Launcher could not finish installing (exit code ' +
+    RaiseException('SLCLauncher could not finish installing (exit code ' +
                    IntToStr(ResultCode) + ').' + #13#10#13#10 +
                    'What went wrong is in ' + LogPath);
 end;

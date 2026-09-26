@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    The SLC Launcher watcher: starts your World of Warcraft tools -- Archon,
+    The SLCLauncher watcher: starts your World of Warcraft tools -- Archon,
     WowUp, CurseForge, Raider.IO, WowUtils Bridge and programs of your own --
     when the game launches, and can close them again when it exits.
 
@@ -101,7 +101,7 @@ $ErrorActionPreference = 'Stop'
 
 # The single source of truth for the version. Install.ps1 and ViewLog.cmd read
 # it back out of this file rather than keeping copies that can drift.
-$SLCLauncherVersion = '2.0.0'
+$SLCLauncherVersion = '2.1.0'
 
 # ------------------------------------------------------------- single copy --
 # Only one watcher may run at a time. The task starts this script from both a
@@ -665,7 +665,7 @@ function Invoke-CompanionLaunch {
 
 function Write-Settings {
     if (@($script:Companions).Count -eq 0) {
-        Write-Log 'apps      : none chosen - pick some in SLC Launcher'
+        Write-Log 'apps      : none chosen - pick some in SLCLauncher'
     }
     foreach ($app in $script:Companions) {
         if ($app.Exe) {

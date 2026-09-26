@@ -1,9 +1,9 @@
 @echo off
 setlocal
-title SLC Launcher - Log
+title SLCLauncher - Log
 
 echo.
-echo   SLC Launcher
+echo   SLCLauncher
 echo   ---------------
 echo.
 

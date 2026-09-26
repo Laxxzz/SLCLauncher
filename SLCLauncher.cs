@@ -1,4 +1,4 @@
-// SLCLauncher.exe -- the SLC Launcher settings app.
+// SLCLauncher.exe -- the SLCLauncher settings app.
 //
 // This is what you open. It is not the watcher: that is SLCWatcher.ps1,
 // which the scheduled task keeps running in the background with no window and
@@ -25,8 +25,8 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Windows.Forms;
 
-[assembly: AssemblyTitle("SLC Launcher")]
-[assembly: AssemblyProduct("SLC Launcher")]
+[assembly: AssemblyTitle("SLCLauncher")]
+[assembly: AssemblyProduct("SLCLauncher")]
 [assembly: AssemblyDescription("Choose what starts with World of Warcraft")]
 
 static class Program
@@ -75,7 +75,7 @@ static class Program
         {
             MessageBox.Show("SLCLauncherSettings.ps1 is missing from " + dir + ".\n\n" +
                             "Run Install.cmd again to repair it.",
-                            "SLC Launcher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                            "SLCLauncher", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             return 1;
         }
 
@@ -116,6 +116,6 @@ static class Program
     static void ShowFailure(string detail)
     {
         MessageBox.Show("The settings window could not be opened.\n\n" + detail,
-                        "SLC Launcher", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        "SLCLauncher", MessageBoxButtons.OK, MessageBoxIcon.Error);
     }
 }

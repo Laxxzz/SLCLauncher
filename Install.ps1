@@ -1,12 +1,12 @@
 <#
 .SYNOPSIS
-    Installs SLC Launcher as a hidden logon scheduled task for the current user.
+    Installs SLCLauncher as a hidden logon scheduled task for the current user.
 
 .DESCRIPTION
     Copies the watcher into %LOCALAPPDATA%\SLCLauncher, registers a scheduled
     task that starts it at logon, and starts it immediately. Also builds
     SLCLauncher.exe -- the settings app -- beside it and adds that to the
-    Start menu as "SLC Launcher".
+    Start menu as "SLCLauncher".
 
     No administrator rights are required -- the task runs as the current user
     only. Re-running this script safely overwrites a previous install, and keeps
@@ -76,7 +76,7 @@ $cfgTarget  = Join-Path $installDir 'config.json'
 $appSource  = Join-Path $PSScriptRoot 'SLCLauncher.cs'
 $appTarget  = Join-Path $installDir 'SLCLauncher.exe'
 $iconSource = Join-Path $PSScriptRoot 'SLCLauncher.ico'
-$shortcut   = Join-Path ([Environment]::GetFolderPath('Programs')) 'SLC Launcher.lnk'
+$shortcut   = Join-Path ([Environment]::GetFolderPath('Programs')) 'SLCLauncher.lnk'
 
 # The .cs files are compiled rather than copied, and the icon is both embedded
 # in the program and copied beside it for the window to use.
@@ -92,60 +92,14 @@ $vMatch = Select-String -Path $source -Pattern "SLCLauncherVersion\s*=\s*'([^']+
           Select-Object -First 1
 if ($vMatch) { $version = $vMatch.Matches[0].Groups[1].Value }
 
-Write-Host "Installing SLC Launcher $version..." -ForegroundColor Cyan
+Write-Host "Installing SLCLauncher $version..." -ForegroundColor Cyan
 
 New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 
-# ------------------------------------------- taking over Archon Launcher --
-# Up to 1.5.0 this tool was Archon Launcher: installed in
-# %LOCALAPPDATA%\ArchonLauncher, run by a task called ArchonLauncher, and in the
-# Start menu under that name. Left in place it would go on watching for the
-# game alongside this one and every app would be launched twice, so it is
-# taken over: its settings and log come across, and then it is removed.
-$legacyDir  = Join-Path $env:LOCALAPPDATA 'ArchonLauncher'
-$legacyArgs = ''
-$legacyTask = Get-ScheduledTask -TaskName 'ArchonLauncher' -ErrorAction SilentlyContinue
-if ($legacyTask) {
-    # Read before unregistering: up to 1.4.1 the installer's answers lived on
-    # this command line, and they are migrated into config.json below.
-    $legacyArgs = " $(@($legacyTask.Actions)[0].Arguments) "
-    try { Stop-ScheduledTask -TaskName 'ArchonLauncher' -ErrorAction Stop } catch { }
-    Unregister-ScheduledTask -TaskName 'ArchonLauncher' -Confirm:$false
-    Write-Host "  removed -> the old ArchonLauncher task"
-}
-
-# Its watcher ran as ArchonWatcher.ps1 in 1.5.0 and ArchonLauncher.ps1 before.
-Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { ($_.CommandLine -like '*ArchonWatcher.ps1*' -or
-                    $_.CommandLine -like '*ArchonLauncher.ps1*') -and $_.ProcessId -ne $PID } |
-    ForEach-Object {
-        Write-Host "  stopping the old Archon Launcher watcher (pid $($_.ProcessId))"
-        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-    }
-Get-Process -Name 'ArchonLauncher' -ErrorAction SilentlyContinue |
-    Where-Object { $_.Path -like "$legacyDir\*" } |
-    ForEach-Object {
-        Write-Host "  closing the old Archon Launcher window (pid $($_.Id))"
-        Stop-Process -Id $_.Id -Force
-        $null = $_.WaitForExit(5000)
-    }
-
-if (Test-Path $legacyDir) {
-    # Only into an install that has none of its own yet, so running this
-    # installer twice cannot overwrite newer settings with the old ones.
-    foreach ($f in 'config.json', 'launcher.log', 'launcher.log.1') {
-        $from = Join-Path $legacyDir $f
-        $to   = Join-Path $installDir $f
-        if ((Test-Path $from) -and -not (Test-Path $to)) { Copy-Item $from $to }
-    }
-    Remove-Item -LiteralPath $legacyDir -Recurse -Force
-    Write-Host "  moved   -> settings and log from $legacyDir"
-}
-
-foreach ($name in 'Archon Launcher.lnk', 'Archon Launcher Options.lnk') {
-    $old = Join-Path ([Environment]::GetFolderPath('Programs')) $name
-    if (Test-Path $old) { Remove-Item -LiteralPath $old -Force }
-}
+# Up to 2.0.0 the Start menu entry was "SLC Launcher", with a space. An update
+# would otherwise leave it beside the new one.
+$oldShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'SLC Launcher.lnk'
+if (Test-Path $oldShortcut) { Remove-Item -LiteralPath $oldShortcut -Force }
 
 # ------------------------------------------------------------ copy payload --
 # An open settings window holds SLCLauncher.exe open, and the build below
@@ -161,6 +115,11 @@ Get-Process -Name 'SLCLauncher' -ErrorAction SilentlyContinue |
 foreach ($f in $payload) {
     Copy-Item (Join-Path $PSScriptRoot $f) (Join-Path $installDir $f) -Force
 }
+
+# Troubleshooting help, so it is where the README says whichever way this was
+# installed. Setup puts it there itself and does not pass it here.
+$viewLog = Join-Path $PSScriptRoot 'ViewLog.cmd'
+if (Test-Path $viewLog) { Copy-Item $viewLog (Join-Path $installDir 'ViewLog.cmd') -Force }
 Write-Host "  files   -> $installDir"
 
 # ------------------------------------------------------------- settings app --
@@ -197,8 +156,7 @@ Write-Host "  app     -> $appTarget"
 #
 #   1. the installed config.json, as the settings app last left it
 #   2. a config.json next to this installer, key by key
-#   3. switches baked into Archon Launcher 1.4.x's task (migrated, see below)
-#   4. switches given to this install
+#   3. switches given to this install
 function Read-JsonFile {
     param([string]$Path)
     if (-not (Test-Path $Path)) { return $null }
@@ -223,19 +181,6 @@ $fromSrc = Read-JsonFile $srcCfg
 if ($fromSrc) {
     foreach ($p in $fromSrc.PSObject.Properties) { Set-Setting $p.Name $p.Value }
     Write-Host "  applied -> settings from $srcCfg"
-}
-
-# Up to 1.4.1 the installer's answers were switches on the old task's command
-# line, where they outranked config.json. That task is gone and the new one
-# has none, so carry them into the file -- otherwise an upgrade would quietly
-# turn back on an app you had said no to.
-$legacy = @{
-    '-NoWowUp'      = @('LaunchWowUp',      $false)
-    '-NoCurseForge' = @('LaunchCurseForge', $false)
-    '-QuitWithWow'  = @('QuitWithWow',      $true)
-}
-foreach ($switch in $legacy.Keys) {
-    if ($legacyArgs -like "* $switch *") { Set-Setting $legacy[$switch][0] $legacy[$switch][1] }
 }
 
 if ($QuitWithWow)      { Set-Setting 'QuitWithWow'          $true }
@@ -272,7 +217,7 @@ if ($ownCount -eq 1)     { $chosen += '1 program of your own' }
 elseif ($ownCount -gt 1) { $chosen += "$ownCount programs of your own" }
 
 if ($chosen.Count -eq 0) {
-    $line = 'nothing yet - choose in SLC Launcher'
+    $line = 'nothing yet - choose in SLCLauncher'
 } elseif ($chosen.Count -eq 1) {
     $line = "$($chosen[0]), if installed"
 } else {
@@ -343,7 +288,7 @@ Register-ScheduledTask `
     -Trigger     $triggers `
     -Principal   $principal `
     -Settings    $settings `
-    -Description 'Runs the SLC Launcher watcher, which starts the World of Warcraft tools chosen in SLC Launcher when the game launches.' `
+    -Description 'Runs the SLCLauncher watcher, which starts the World of Warcraft tools chosen in SLCLauncher when the game launches.' `
     -Force | Out-Null
 
 Write-Host "  task    -> $TaskName (at logon, hidden, self-healing every ${HeartbeatMinutes}m)"
@@ -355,7 +300,7 @@ $lnk.TargetPath       = $appTarget
 $lnk.WorkingDirectory = $installDir
 $lnk.Description      = 'Choose what starts with World of Warcraft'
 $lnk.Save()
-Write-Host "  menu    -> Start menu, 'SLC Launcher'"
+Write-Host "  menu    -> Start menu, 'SLCLauncher'"
 
 Start-ScheduledTask -TaskName $TaskName
 
@@ -384,10 +329,10 @@ Write-Host ""
 
 if ($OpenSettings) {
     Start-Process -FilePath $appTarget
-    Write-Host "Choose what starts with WoW in the SLC Launcher window that just opened." -ForegroundColor Cyan
-    Write-Host "Open it again any time from the Start menu: SLC Launcher." -ForegroundColor Cyan
+    Write-Host "Choose what starts with WoW in the SLCLauncher window that just opened." -ForegroundColor Cyan
+    Write-Host "Open it again any time from the Start menu: SLCLauncher." -ForegroundColor Cyan
 } else {
-    Write-Host "Launch WoW to test. Change settings from the Start menu: SLC Launcher." -ForegroundColor Cyan
+    Write-Host "Launch WoW to test. Change settings from the Start menu: SLCLauncher." -ForegroundColor Cyan
 }
 
 if ($LogPath) { Stop-Transcript | Out-Null }

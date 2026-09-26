@@ -40,7 +40,7 @@ $vMatch = Select-String -Path (Join-Path $root 'SLCWatcher.ps1') `
 if (-not $vMatch) { throw 'no $SLCLauncherVersion found in SLCWatcher.ps1' }
 $version = $vMatch.Matches[0].Groups[1].Value
 
-Write-Host "Building SLC Launcher $version installer..." -ForegroundColor Cyan
+Write-Host "Building SLCLauncher $version installer..." -ForegroundColor Cyan
 & $iscc /Q "/DAppVersion=$version" $iss
 if ($LASTEXITCODE -ne 0) { throw "ISCC failed with exit code $LASTEXITCODE" }
 

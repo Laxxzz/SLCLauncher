@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    The SLC Launcher settings window.
+    The SLCLauncher settings window.
 
 .DESCRIPTION
     Edits config.json in %LOCALAPPDATA%\SLCLauncher: which apps start with
@@ -49,11 +49,11 @@ $configPath = Join-Path $installDir 'config.json'
 
 function Show-Message {
     param([string]$Text, [string]$Icon = 'Information')
-    $null = [System.Windows.Forms.MessageBox]::Show($Text, 'SLC Launcher', 'OK', $Icon)
+    $null = [System.Windows.Forms.MessageBox]::Show($Text, 'SLCLauncher', 'OK', $Icon)
 }
 
 if (-not (Test-Path (Join-Path $installDir 'SLCWatcher.ps1'))) {
-    Show-Message "SLC Launcher is not installed.`n`nRun Install.cmd first, then open SLC Launcher again." 'Warning'
+    Show-Message "SLCLauncher is not installed.`n`nRun the SLCLauncher installer first, then open SLCLauncher again." 'Warning'
     exit 1
 }
 
@@ -98,7 +98,7 @@ $builtIns = @(
 $P = [SLCLauncher.Theme.Palette]
 
 $form = New-Object System.Windows.Forms.Form
-$form.Text            = 'SLC Launcher'
+$form.Text            = 'SLCLauncher'
 $form.Font            = New-Object System.Drawing.Font('Segoe UI', 9.5)
 $form.FormBorderStyle = 'FixedSingle'
 $form.MaximizeBox     = $false
@@ -235,7 +235,7 @@ if ($appIcon) {
     $header.Controls.Add($logo)
     $titleX = $pad + (S 52)
 }
-$title = New-Label 'SLC Launcher' $fontTitle $P::Text
+$title = New-Label 'SLCLauncher' $fontTitle $P::Text
 $title.Location = New-Object System.Drawing.Point($titleX, (S 12))
 $header.Controls.Add($title)
 $subtitle = New-Label 'Your World of Warcraft tools, started with the game.' $fontSmall $P::TextMuted
@@ -394,7 +394,7 @@ $quitBox = New-Check 'Close them all when WoW closes' (ConvertTo-Bool (Get-Setti
 $closing.Controls.Add($quitBox)
 $closing.Controls.Add((New-Hint ('Each app is asked to close first. Anything still running a few seconds ' +
     'later - an app that hides in the tray instead - is stopped. Programs of your own are closed only ' +
-    'if SLC Launcher started them.')))
+    'if SLCLauncher started them.')))
 
 # ------------------------------------------------------------------ footer --
 $footer = New-Object SLCLauncher.Theme.FooterBand

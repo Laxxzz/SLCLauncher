@@ -1,4 +1,4 @@
-// SLCTheme.cs -- SimpleLootCouncil's look, for the SLC Launcher window.
+// SLCTheme.cs -- SimpleLootCouncil's look, for the SLCLauncher window.
 //
 // The palette is SimpleLootCouncil's own (UI/Style.lua in that addon), so the
 // launcher and the addon read as one product: a near-black slate canvas,
