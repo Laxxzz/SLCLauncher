@@ -433,4 +433,9 @@ powershell -ExecutionPolicy Bypass -File .\Uninstall.ps1 -KeepFiles
 
 ## License
 
-Public domain / CC0. Do whatever you like with it.
+Copyright (c) 2026 Laxx. All rights reserved. You may install and use SLC
+Launcher, and modify your own copy privately. Redistributing it, publishing it
+elsewhere or reusing its source needs permission first. See [LICENSE](LICENSE).
+
+Earlier versions were released under CC0 (public domain), and copies of those
+stay that way.
