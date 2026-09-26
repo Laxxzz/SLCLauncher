@@ -1,4 +1,4 @@
-# SLCLauncher
+<img src="docs/banner.png" alt="SLCLauncher" width="100%">
 
 **Starts your World of Warcraft tools when the game launches, and can close them when it exits.**
 
