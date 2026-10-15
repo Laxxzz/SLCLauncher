@@ -364,6 +364,7 @@ namespace SLCLauncher.Theme
         [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
         [DllImport("user32.dll")] static extern bool ReleaseCapture();
         [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
+        [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
         const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
         const int DWMWA_BORDER_COLOR  = 34;
@@ -374,9 +375,12 @@ namespace SLCLauncher.Theme
         public const int SC_MINIMIZE  = 0xF020;
         public const int SC_CLOSE     = 0xF060;
 
+        // Posted, not sent: from inside a click the button still holds the
+        // mouse capture, and Windows ignores the command until it lets go.
+        // Posted, it runs once the click has finished.
         public static void SystemCommand(Form form, int command)
         {
-            SendMessage(form.Handle, WM_SYSCOMMAND, (IntPtr)command, IntPtr.Zero);
+            PostMessage(form.Handle, WM_SYSCOMMAND, (IntPtr)command, IntPtr.Zero);
         }
 
         static int ColorRef(Color c) { return c.R | (c.G << 8) | (c.B << 16); }
