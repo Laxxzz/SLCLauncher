@@ -6,7 +6,10 @@
 
 SLCLauncher starts [Archon](https://www.archon.gg/), [WowUp](https://wowup.io/),
 [CurseForge](https://www.curseforge.com/), the [Raider.IO](https://raider.io/)
-client, WowUtils Bridge and any program of your own when WoW starts. You pick
+client, WowUtils Bridge, [wowaudit](https://wowaudit.com/),
+[Guilds of WoW](https://guildsofwow.com/), the
+[TSM](https://tradeskillmaster.com/) desktop app and any program of your own
+when WoW starts. You pick
 them in one small settings window, and an invisible background watcher does the
 rest. Part of the SLC family of WoW tools, alongside the SimpleLootCouncil addon.
 
@@ -18,6 +21,8 @@ rest. Part of the SLC family of WoW tools, alongside the SimpleLootCouncil addon
 - **Optionally closes them with the game.** That includes apps that hide in the tray.
 - **No tray icon, no window, tiny footprint.** One PowerShell process polling
   once a second, about 0.03% CPU.
+- **Tells you when there's a new version.** Once a day at most, and installs it
+  in one click without touching your settings.
 
 ## Contents
 
@@ -26,6 +31,7 @@ rest. Part of the SLC family of WoW tools, alongside the SimpleLootCouncil addon
 - [Supported apps](#supported-apps)
 - [Your own programs](#your-own-programs)
 - [Closing them with the game](#closing-them-with-the-game)
+- [Updates](#updates)
 - [Configuration](#configuration)
 - [Troubleshooting](#troubleshooting)
 - [How it works](#how-it-works)
@@ -43,8 +49,9 @@ Windows 10 or 11. You don't need administrator rights or anything else installed
 3. Tick your apps and click **Save**.
 
 The installer is unsigned, so Windows may say *"Windows protected your PC"*.
-Click **More info → Run anyway**. Running a newer Setup later updates
-SLCLauncher and keeps your settings.
+Click **More info → Run anyway**. Running a newer Setup later removes the old
+version cleanly, installs the new one and keeps your settings; see
+[Updates](#updates) for the one-click way.
 
 **Without the installer:** extract the release zip and double-click
 **`Install.cmd`**. It installs exactly the same thing.
@@ -68,6 +75,9 @@ next game launch. You never need to reinstall or restart anything.
 | [CurseForge](https://www.curseforge.com/) | The standalone app only. The Overwolf version has no program of its own to start. |
 | [Raider.IO](https://raider.io/) client | |
 | WowUtils Bridge | |
+| [wowaudit](https://wowaudit.com/) | The wowaudit desktop client. |
+| [Guilds of WoW](https://guildsofwow.com/) | The GoW Sync App, from the Microsoft Store. |
+| [TSM](https://tradeskillmaster.com/) desktop app | The TradeSkillMaster Application, not its updater. |
 
 All are found automatically and ticked by default. A ticked app you don't have is
 simply skipped. Addon managers may update your `AddOns` folder mid-session, so
@@ -93,6 +103,22 @@ Your own programs are closed only if SLCLauncher started them for that game.
 Set `QuitGraceSeconds` to `0` to only ever ask. A forced stop can interrupt an
 addon manager halfway through an update.
 
+## Updates
+
+The top right of the settings window says **Up to date** or, in orange,
+**Update available**. Click **Update available** to download the new Setup from
+this repository's Releases, check it against the SHA-256 checksum GitHub
+publishes for it, and install it. Your settings are kept. When a new version
+comes out you also get one Windows notification about it.
+
+To find out, SLCLauncher asks GitHub for the latest release number at most once a
+day, and never while WoW is running. Nothing about you, your PC or your settings
+is sent. Untick **Check for a new version once a day** to stop it. Clicking the
+status line still checks on demand.
+
+Every update removes the old version before installing the new one, and keeps
+`config.json` throughout.
+
 ## Configuration
 
 Everything lives in `%LOCALAPPDATA%\SLCLauncher\config.json`. The watcher reloads
@@ -100,21 +126,25 @@ it within a second of a save. Keys the settings window doesn't show are kept.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `LaunchArchon` … `LaunchWowUtilsBridge` | `true` | Start that app with the game. |
+| `LaunchArchon` … `LaunchTSM` | `true` | Start that app with the game. |
 | `CustomApps` | none | Your own programs: `Name`, `Path`, `Enabled`. |
-| `ArchonExe` … `WowUtilsBridgeExe` | auto | Full path, only if auto-detection misses the app. |
+| `ArchonExe` … `TSMExe` | auto | Full path, only if auto-detection misses the app. |
 | `GamePattern` | `^Wow(Classic\|T\|B)?$` | Regex for the game's process name. |
 | `PollSeconds` | `1` | Seconds between checks. |
 | `LaunchDelaySeconds` | `3` | Wait after spotting the game. |
 | `QuitWithWow` | `false` | Close the apps when the game exits. |
 | `QuitGraceSeconds` | `5` | Time to close before being stopped. |
+| `CheckForUpdates` | `true` | Check GitHub for a new version once a day. |
 
 An invalid save is logged and ignored. `config.example.json` lists every key. A
 `config.json` placed next to `Install.cmd` is applied on each install.
 
 `Install.ps1` also takes `-NoArchon`, `-NoWowUp`, `-NoCurseForge`,
-`-NoRaiderIO`, `-NoWowUtilsBridge` and `-QuitWithWow`. Setup also installs
-silently with `/VERYSILENT`.
+`-NoRaiderIO`, `-NoWowUtilsBridge`, `-NoWowAudit`, `-NoGuildsOfWow`, `-NoTSM`
+and `-QuitWithWow`. Setup also installs silently with `/VERYSILENT`, and
+`/RELAUNCH` opens SLCLauncher once it is done. The uninstaller,
+`%LOCALAPPDATA%\SLCLauncher\unins000.exe`, takes `/KEEPSETTINGS` to leave
+`config.json` behind.
 
 ## Troubleshooting
 
@@ -144,11 +174,19 @@ lists every app it manages and where it found it.
   built into Windows. A program built locally from readable source draws less
   suspicion from SmartScreen and antivirus than a downloaded one.
 - **Apps are found** from your `config.json` path, then the app's uninstall
-  registry entry, then a running copy, then the usual install folders.
+  registry entry, then a running copy, then the usual install folders. A
+  Microsoft Store app (Guilds of WoW) is found as a Store package and started
+  through the shell, as its Start menu tile would be.
+- **Update checks** are one request to GitHub's public
+  `releases/latest` address, made by the watcher or the settings window,
+  whichever comes first that day. The answer is kept in `update.json`.
 - **The installer** is an [Inno Setup](https://jrsoftware.org/isinfo.php)
   wrapper around `Install.ps1` and `Uninstall.ps1`. To build it, install Inno Setup 6
   (`winget install --id JRSoftware.InnoSetup -e --scope user`) and run
-  `installer\Build-Installer.ps1`. The result goes to `dist\`.
+  `installer\Build-Installer.ps1`. The result goes to `dist\`. An update
+  copies `config.json` to `%LOCALAPPDATA%\SLCLauncher-update-backup`, runs the
+  old uninstaller, puts the settings back and installs. The copy is deleted
+  once the install succeeds.
 
 Nothing here modifies or injects into WoW or any app. It only starts and closes them.
 

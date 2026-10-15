@@ -9,8 +9,9 @@
     Start menu as "SLCLauncher".
 
     No administrator rights are required -- the task runs as the current user
-    only. Re-running this script safely overwrites a previous install, and keeps
-    the settings already chosen in the settings app.
+    only. Re-running this script replaces a previous install cleanly -- the old
+    watcher is stopped and the old version's files removed before the new ones
+    go in -- and keeps the settings already chosen in the settings app.
 
 .PARAMETER TaskName
     Scheduled task name. Default "SLCLauncher".
@@ -32,6 +33,15 @@
 
 .PARAMETER NoWowUtilsBridge
     Never start WowUtils Bridge, even when it is installed.
+
+.PARAMETER NoWowAudit
+    Never start the wowaudit client, even when it is installed.
+
+.PARAMETER NoGuildsOfWow
+    Never start the Guilds of WoW app, even when it is installed.
+
+.PARAMETER NoTSM
+    Never start the TSM desktop app, even when it is installed.
 
 .PARAMETER OpenSettings
     Open the settings app once installed. Install.cmd passes this.
@@ -58,6 +68,9 @@ param(
     [switch] $NoCurseForge,
     [switch] $NoRaiderIO,
     [switch] $NoWowUtilsBridge,
+    [switch] $NoWowAudit,
+    [switch] $NoGuildsOfWow,
+    [switch] $NoTSM,
     [switch] $OpenSettings,
     [int]    $HeartbeatMinutes = 5,
     [string] $LogPath
@@ -101,9 +114,19 @@ New-Item -ItemType Directory -Force -Path $installDir | Out-Null
 $oldShortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'SLC Launcher.lnk'
 if (Test-Path $oldShortcut) { Remove-Item -LiteralPath $oldShortcut -Force }
 
-# ------------------------------------------------------------ copy payload --
-# An open settings window holds SLCLauncher.exe open, and the build below
-# has to replace it. Close it rather than fail halfway through an install.
+# ------------------------------------------------------ stop the old version --
+# Before a single file changes, so nothing of the old version is still running
+# while it is replaced. The watcher is started again once the task is in place.
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.CommandLine -like '*SLCWatcher.ps1*' -and $_.ProcessId -ne $PID } |
+    ForEach-Object {
+        Write-Host "  stopping running watcher (pid $($_.ProcessId))"
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+
+# An open settings window -- or an update notification -- holds
+# SLCLauncher.exe open, and the build below has to replace it. Close it rather
+# than fail halfway through an install.
 Get-Process -Name 'SLCLauncher' -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -eq $appTarget } |
     ForEach-Object {
@@ -112,6 +135,28 @@ Get-Process -Name 'SLCLauncher' -ErrorAction SilentlyContinue |
         $null = $_.WaitForExit(5000)
     }
 
+# ---------------------------------------------------- remove the old files --
+# Everything the old version installed goes, so nothing it left behind can be
+# mistaken for part of this one. Kept: your settings and the update check's
+# note (config.json, update.json), the logs, and what Setup.exe has put here
+# itself -- its uninstaller, and Uninstall.ps1 and ViewLog.cmd, which it copies
+# in before it runs this.
+$keep = @('config.json', 'update.json', 'launcher.log', 'launcher.log.1', 'install.log',
+          'Uninstall.ps1', 'ViewLog.cmd')
+# Not when this is being run from the install folder itself: the files to
+# install would be among those removed.
+$old = @()
+if ((Resolve-Path -LiteralPath $PSScriptRoot).Path.TrimEnd('\') -ne
+    (Resolve-Path -LiteralPath $installDir).Path.TrimEnd('\')) {
+    $old = @(Get-ChildItem -LiteralPath $installDir -Force -ErrorAction SilentlyContinue |
+             Where-Object { $keep -notcontains $_.Name -and $_.Name -notlike 'unins*' })
+}
+foreach ($item in $old) {
+    Remove-Item -LiteralPath $item.FullName -Recurse -Force
+}
+if ($old.Count -gt 0) { Write-Host "  removed -> $($old.Count) files of the previous version" }
+
+# ------------------------------------------------------------ copy payload --
 foreach ($f in $payload) {
     Copy-Item (Join-Path $PSScriptRoot $f) (Join-Path $installDir $f) -Force
 }
@@ -189,6 +234,9 @@ if ($NoArchon)         { Set-Setting 'LaunchArchon'         $false }
 if ($NoCurseForge)     { Set-Setting 'LaunchCurseForge'     $false }
 if ($NoRaiderIO)       { Set-Setting 'LaunchRaiderIO'       $false }
 if ($NoWowUtilsBridge) { Set-Setting 'LaunchWowUtilsBridge' $false }
+if ($NoWowAudit)       { Set-Setting 'LaunchWowAudit'       $false }
+if ($NoGuildsOfWow)    { Set-Setting 'LaunchGuildsOfWow'    $false }
+if ($NoTSM)            { Set-Setting 'LaunchTSM'            $false }
 
 [System.IO.File]::WriteAllText($cfgTarget, (ConvertTo-Json -InputObject $config -Depth 5),
                                (New-Object System.Text.UTF8Encoding($false)))
@@ -207,7 +255,8 @@ function Test-On {
 $chosen = @()
 foreach ($a in @(@('Archon', 'LaunchArchon'), @('WowUp', 'LaunchWowUp'),
                  @('CurseForge', 'LaunchCurseForge'), @('Raider.IO', 'LaunchRaiderIO'),
-                 @('WowUtils Bridge', 'LaunchWowUtilsBridge'))) {
+                 @('WowUtils Bridge', 'LaunchWowUtilsBridge'), @('wowaudit', 'LaunchWowAudit'),
+                 @('Guilds of WoW', 'LaunchGuildsOfWow'), @('TSM', 'LaunchTSM'))) {
     if (Test-On $config.($a[1]) $true) { $chosen += $a[0] }
 }
 $ownCount = @($config.CustomApps | Where-Object {
@@ -225,14 +274,6 @@ if ($chosen.Count -eq 0) {
 }
 Write-Host "  starts  -> $line"
 if (Test-On $config.QuitWithWow $false) { Write-Host '  closes  -> all of them when WoW closes' }
-
-# --------------------------------------------------- stop any running copy --
-Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" -ErrorAction SilentlyContinue |
-    Where-Object { $_.CommandLine -like '*SLCWatcher.ps1*' -and $_.ProcessId -ne $PID } |
-    ForEach-Object {
-        Write-Host "  stopping running watcher (pid $($_.ProcessId))"
-        Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
-    }
 
 # -------------------------------------------------------- register the task --
 # Launch through the VBS shim rather than powershell.exe directly: Task

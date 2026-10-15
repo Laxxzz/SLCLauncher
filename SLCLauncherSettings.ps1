@@ -6,6 +6,12 @@
     Edits config.json in %LOCALAPPDATA%\SLCLauncher: which apps start with
     World of Warcraft, whether they close with it, and any programs of your own.
 
+    Its header says whether a newer SLCLauncher has been released, and
+    installs it when asked: the installer is downloaded from the GitHub
+    release, checked against the SHA-256 GitHub publishes for it, and run.
+    The check is the same once-a-day request the watcher makes, and shares its
+    answer through update.json, so between them it is still made once a day.
+
     The watcher notices the saved file within a second and reloads it without a
     restart; the new settings take effect the next time the game starts. Keys
     this window does not show -- GamePattern, the *Exe paths and so on -- are
@@ -85,14 +91,24 @@ function Get-Setting {
     return $Default
 }
 
-# The built-in apps, in the order they are shown.
+# The built-in apps, in the order they are shown: down the left column, then
+# down the right.
 $builtIns = @(
     @{ Key = 'LaunchArchon';         Label = 'Archon App' },
     @{ Key = 'LaunchWowUp';          Label = 'WowUp' },
     @{ Key = 'LaunchCurseForge';     Label = 'CurseForge' },
     @{ Key = 'LaunchRaiderIO';       Label = 'Raider.IO' },
-    @{ Key = 'LaunchWowUtilsBridge'; Label = 'WowUtils Bridge' }
+    @{ Key = 'LaunchWowUtilsBridge'; Label = 'WowUtils Bridge' },
+    @{ Key = 'LaunchWowAudit';       Label = 'wowaudit' },
+    @{ Key = 'LaunchGuildsOfWow';    Label = 'Guilds of WoW' },
+    @{ Key = 'LaunchTSM';            Label = 'TSM Desktop App' }
 )
+
+# The installed version, from the one place it is written down.
+$currentVersion = '0.0.0'
+$vMatch = Select-String -LiteralPath (Join-Path $installDir 'SLCWatcher.ps1') `
+                        -Pattern "SLCLauncherVersion\s*=\s*'([^']+)'" | Select-Object -First 1
+if ($vMatch) { $currentVersion = $vMatch.Matches[0].Groups[1].Value }
 
 # ------------------------------------------------------------------ window --
 $P = [SLCLauncher.Theme.Palette]
@@ -242,6 +258,19 @@ $subtitle = New-Label 'Your World of Warcraft tools, started with the game.' $fo
 $subtitle.Location = New-Object System.Drawing.Point(($titleX + (S 2)), (S 42))
 $header.Controls.Add($subtitle)
 
+# Top right: whether this is the latest version, and the version itself under
+# it. Both right-aligned by hand, since their text changes as a check runs.
+$updateLabel = New-Label '' $fontSmall $P::TextFaint
+$header.Controls.Add($updateLabel)
+$versionLabel = New-Label "v$currentVersion" $fontSmall $P::TextFaint
+$header.Controls.Add($versionLabel)
+
+function Set-HeaderRight {
+    param($Label, [int]$Y)
+    $Label.Location = New-Object System.Drawing.Point(($header.Width - $pad - $Label.PreferredWidth), $Y)
+}
+Set-HeaderRight $versionLabel (S 42)
+
 # -------------------------------------------------------------------- body --
 $body = New-Stack
 $body.Padding = New-Object System.Windows.Forms.Padding($pad, (S 4), $pad, $pad)
@@ -250,10 +279,26 @@ $page.Controls.Add($body)
 # ------------------------------------------------------- the built-in apps --
 $apps = Add-Section 'Start with World of Warcraft'
 
+# Two columns: the names are short, and one long column left most of the
+# card empty.
+$grid = New-Object System.Windows.Forms.TableLayoutPanel
+$grid.ColumnCount  = 2
+$grid.RowCount     = [math]::Ceiling($builtIns.Count / 2)
+$grid.AutoSize     = $true
+$grid.AutoSizeMode = 'GrowAndShrink'
+$grid.BackColor    = [System.Drawing.Color]::Transparent
+$grid.Margin       = New-Object System.Windows.Forms.Padding(0)
+$colW = [int]($innerW / 2)
+foreach ($i in 0..1) {
+    $null = $grid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle('Absolute', $colW)))
+}
+$apps.Controls.Add($grid)
+
 $appBoxes = @{}
-foreach ($b in $builtIns) {
+for ($i = 0; $i -lt $builtIns.Count; $i++) {
+    $b = $builtIns[$i]
     $box = New-Check $b.Label (ConvertTo-Bool (Get-Setting $b.Key $true))
-    $apps.Controls.Add($box)
+    $grid.Controls.Add($box, [int][math]::Floor($i / $grid.RowCount), $i % $grid.RowCount)
     $appBoxes[$b.Key] = $box
 }
 $apps.Controls.Add((New-Hint 'Anything ticked that is not installed is skipped.'))
@@ -396,6 +441,13 @@ $closing.Controls.Add((New-Hint ('Each app is asked to close first. Anything sti
     'later - an app that hides in the tray instead - is stopped. Programs of your own are closed only ' +
     'if SLCLauncher started them.')))
 
+# ----------------------------------------------------------------- updates --
+$updates = Add-Section 'Updates'
+$updateBox = New-Check 'Check for a new version once a day' (ConvertTo-Bool (Get-Setting 'CheckForUpdates' $true))
+$updates.Controls.Add($updateBox)
+$updates.Controls.Add((New-Hint ('Asks GitHub for the number of the latest release, and shows a notification ' +
+    'when there is a newer one. Nothing about you or your settings is sent.')))
+
 # ------------------------------------------------------------------ footer --
 $footer = New-Object SLCLauncher.Theme.FooterBand
 $footer.Size   = New-Object System.Drawing.Size(($contentW + 2 * $pad), (S 60))
@@ -448,6 +500,7 @@ function Set-Setting {
 $saveButton.Add_Click({
     foreach ($b in $builtIns) { Set-Setting $b.Key $appBoxes[$b.Key].Checked }
     Set-Setting 'QuitWithWow' $quitBox.Checked
+    Set-Setting 'CheckForUpdates' $updateBox.Checked
 
     $custom = @()
     foreach ($entry in $customRows) {
@@ -473,8 +526,273 @@ $saveButton.Add_Click({
     $form.DialogResult = 'OK'
 })
 
+# ----------------------------------------------------------------- updates --
+# The same request the watcher makes, to the same address, sharing its answer
+# through update.json: a check either of them made in the last day stands.
+# Requests run asynchronously and a timer looks in on them, so the window never
+# waits on the network; everything below runs on the window's own thread.
+$releaseApi      = 'https://api.github.com/repos/Laxxzz/SLCLauncher/releases/latest'
+$updateStatePath = Join-Path $installDir 'update.json'
+
+# One record the handlers change in place: a handler that assigned to a plain
+# variable would only make its own copy.
+$upd = @{
+    Action  = $null   # what clicking the header line does: 'check', 'install' or nothing
+    Release = $null   # the release as GitHub last described it
+    Job     = $null   # the request in flight: Client, Task, Deadline, Kind
+    InstallWhenChecked = $false
+}
+
+function Read-UpdateState {
+    $s = $null
+    if (Test-Path -LiteralPath $updateStatePath) {
+        try { $s = Get-Content -LiteralPath $updateStatePath -Raw | ConvertFrom-Json } catch { }
+    }
+    if (-not $s) { $s = New-Object PSObject }
+    foreach ($k in 'LastCheck', 'LatestVersion', 'ReleaseUrl', 'NotifiedVersion') {
+        if (-not $s.PSObject.Properties[$k]) { $s | Add-Member -NotePropertyName $k -NotePropertyValue '' }
+    }
+    return $s
+}
+
+function Write-UpdateState {
+    param($State)
+    try {
+        $temp = "$updateStatePath.saving"
+        [System.IO.File]::WriteAllText($temp, (ConvertTo-Json -InputObject $State),
+                                       (New-Object System.Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath $temp -Destination $updateStatePath -Force
+    } catch { }
+}
+
+function Test-Newer {
+    param([string]$Latest)
+    $v = $null; $mine = $null
+    if (-not [version]::TryParse($Latest, [ref]$v)) { return $false }
+    if (-not [version]::TryParse($currentVersion, [ref]$mine)) { return $true }
+    return $v -gt $mine
+}
+
+function Set-UpdateStatus {
+    param([string]$Text, $Color, [string]$Action, [string]$Tip)
+    $updateLabel.Text      = $Text
+    $updateLabel.ForeColor = $Color
+    $updateLabel.Cursor    = if ($Action) { [System.Windows.Forms.Cursors]::Hand } else { [System.Windows.Forms.Cursors]::Default }
+    $upd.Action = $Action
+    $tips.SetToolTip($updateLabel, $Tip)
+    Set-HeaderRight $updateLabel (S 18)
+}
+
+function Show-Latest {
+    # The header for a known latest version. Seeing it here counts as being
+    # told, so the watcher does not announce the same version again.
+    param($State)
+    if (Test-Newer $State.LatestVersion) {
+        Set-UpdateStatus 'Update available' $P::Notice 'install' `
+            "SLCLauncher $($State.LatestVersion) is out. Click to install it - your settings are kept."
+        if ($State.NotifiedVersion -ne $State.LatestVersion) {
+            $State.NotifiedVersion = $State.LatestVersion
+            Write-UpdateState $State
+        }
+    } else {
+        Set-UpdateStatus 'Up to date' $P::Accent 'check' 'This is the latest version. Click to check again.'
+    }
+}
+
+function Start-Request {
+    param([string]$Kind, [string]$Url, [string]$File, [int]$Seconds)
+    [Net.ServicePointManager]::SecurityProtocol =
+        [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    $client = New-Object System.Net.WebClient
+    $client.Headers['User-Agent'] = "SLCLauncher/$currentVersion"
+    if ($Kind -eq 'check') {
+        $client.Headers['Accept'] = 'application/vnd.github+json'
+        $task = $client.DownloadStringTaskAsync($Url)
+    } else {
+        $task = $client.DownloadFileTaskAsync($Url, $File)
+    }
+    $upd.Job = @{ Kind = $Kind; Client = $client; Task = $task; File = $File
+                  Deadline = (Get-Date).AddSeconds($Seconds) }
+    $pollTimer.Start()
+}
+
+function Start-UpdateCheck {
+    if ($upd.Job) { return }
+    Set-UpdateStatus 'Checking for updates...' $P::TextFaint $null ''
+    try {
+        Start-Request 'check' $releaseApi $null 20
+    } catch {
+        Set-UpdateStatus 'Could not check for updates' $P::TextFaint 'check' "$_`nClick to try again."
+    }
+}
+
+function Complete-UpdateCheck {
+    param($Job)
+    $failed = $Job.Task.IsFaulted -or $Job.Task.IsCanceled
+    $release = $null
+    if (-not $failed) {
+        try { $release = $Job.Task.Result | ConvertFrom-Json } catch { $failed = $true }
+    }
+    if ($failed -or -not $release.tag_name) {
+        $why = if ($Job.Task.Exception) { $Job.Task.Exception.GetBaseException().Message } else { 'No answer from GitHub.' }
+        Set-UpdateStatus 'Could not check for updates' $P::TextFaint 'check' "$why`nClick to try again."
+        $upd.InstallWhenChecked = $false
+        return
+    }
+    $upd.Release = $release
+    $state = Read-UpdateState
+    $state.LastCheck     = (Get-Date).ToUniversalTime().ToString('o')
+    $state.LatestVersion = "$($release.tag_name)" -replace '^[vV]', ''
+    $state.ReleaseUrl    = "$($release.html_url)"
+    Write-UpdateState $state
+    Show-Latest $state
+
+    if ($upd.InstallWhenChecked) {
+        $upd.InstallWhenChecked = $false
+        if (Test-Newer $state.LatestVersion) { Invoke-Update }
+    }
+}
+
+function Invoke-Update {
+    # Installing needs the release's files and their checksums, which only a
+    # fresh answer from GitHub has; a day-old note in update.json does not.
+    if (-not $upd.Release) {
+        $upd.InstallWhenChecked = $true
+        Start-UpdateCheck
+        return
+    }
+    $latest = "$($upd.Release.tag_name)" -replace '^[vV]', ''
+    $answer = [System.Windows.Forms.MessageBox]::Show($form,
+        ("SLCLauncher $latest is available. You have $currentVersion.`n`n" +
+         "Yes - download and install it now. Your settings are kept.`n" +
+         "No - read what is new on GitHub first.`n`n" +
+         "This window closes while it installs; changes not yet saved are lost."),
+        'SLCLauncher', 'YesNoCancel', 'Information')
+    if ($answer -eq 'No') { Start-Process "$($upd.Release.html_url)"; return }
+    if ($answer -ne 'Yes') { return }
+
+    $asset = @($upd.Release.assets | Where-Object { "$($_.name)" -match '^SLCLauncher-Setup-.+\.exe$' })[0]
+    if (-not $asset -or "$($asset.digest)" -notmatch '^sha256:[0-9a-fA-F]{64}$') {
+        # Never run an installer there is nothing to check against.
+        Show-Message ("This release has no installer with a published checksum, so it cannot be " +
+                      "installed from here. Its GitHub page will open instead.") 'Warning'
+        Start-Process "$($upd.Release.html_url)"
+        return
+    }
+
+    $dir = Join-Path ([System.IO.Path]::GetTempPath()) 'SLCLauncher-update'
+    $file = Join-Path $dir $asset.name
+    try {
+        New-Item -ItemType Directory -Force -Path $dir | Out-Null
+        if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force }
+        $upd.Asset = $asset
+        Set-UpdateStatus 'Downloading update...' $P::TextFaint $null ''
+        Start-Request 'download' "$($asset.browser_download_url)" $file 600
+    } catch {
+        Show-Message "The update could not be downloaded.`n`n$_" 'Error'
+        Show-Latest (Read-UpdateState)
+    }
+}
+
+function Complete-Download {
+    param($Job)
+    $asset = $upd.Asset
+    if ($Job.Task.IsFaulted -or $Job.Task.IsCanceled) {
+        $why = if ($Job.Task.Exception) { $Job.Task.Exception.GetBaseException().Message } else { 'The download was stopped.' }
+        Remove-Item -LiteralPath $Job.File -Force -ErrorAction SilentlyContinue
+        Show-Message "The update could not be downloaded.`n`n$why" 'Error'
+        Show-Latest (Read-UpdateState)
+        return
+    }
+
+    $want = ("$($asset.digest)" -replace '^sha256:', '').ToLowerInvariant()
+    $got  = (Get-FileHash -LiteralPath $Job.File -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($got -ne $want) {
+        Remove-Item -LiteralPath $Job.File -Force -ErrorAction SilentlyContinue
+        Show-Message ("The downloaded installer does not match the checksum GitHub publishes for it, " +
+                      "so it has been deleted and not run.`n`nTry again later, or download it from the " +
+                      "release page yourself.") 'Error'
+        Show-Latest (Read-UpdateState)
+        return
+    }
+
+    # The installer stops the watcher, closes this window, replaces the old
+    # version and keeps config.json; /RELAUNCH opens the settings again after.
+    Set-UpdateStatus 'Installing...' $P::TextFaint $null ''
+    try {
+        Start-Process -FilePath $Job.File -ArgumentList '/SILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/RELAUNCH'
+    } catch {
+        Show-Message "The installer could not be started.`n`n$_" 'Error'
+        Show-Latest (Read-UpdateState)
+        return
+    }
+    $form.DialogResult = 'Cancel'
+}
+
+$pollTimer = New-Object System.Windows.Forms.Timer
+$pollTimer.Interval = 200
+$pollTimer.Add_Tick({
+    $job = $upd.Job
+    if (-not $job) { $pollTimer.Stop(); return }
+
+    if (-not $job.Task.IsCompleted) {
+        if ((Get-Date) -gt $job.Deadline) {
+            $job.Client.CancelAsync()   # completes the task as cancelled; handled next tick
+            $job.Deadline = [datetime]::MaxValue
+        } elseif ($job.Kind -eq 'download' -and $upd.Asset.size -gt 0) {
+            $have = (Get-Item -LiteralPath $job.File -ErrorAction SilentlyContinue).Length
+            if ($have) {
+                $pct = [math]::Min(99, [int](100 * $have / $upd.Asset.size))
+                Set-UpdateStatus "Downloading update... $pct%" $P::TextFaint $null ''
+            }
+        }
+        return
+    }
+
+    $pollTimer.Stop()
+    $upd.Job = $null
+    $job.Client.Dispose()
+    if ($job.Kind -eq 'check') { Complete-UpdateCheck $job } else { Complete-Download $job }
+})
+
+$updateLabel.Add_Click({
+    switch ($upd.Action) {
+        'check'   { Start-UpdateCheck }
+        'install' { Invoke-Update }
+    }
+})
+
+$form.Add_FormClosed({
+    $pollTimer.Stop()
+    if ($upd.Job) { try { $upd.Job.Client.CancelAsync() } catch { } }
+})
+
+# What the header says on opening: a check made in the last day stands, by
+# this window or the watcher; otherwise a new one is made now -- unless checks
+# are switched off, when the line just offers one.
+function Initialize-UpdateStatus {
+    $state = Read-UpdateState
+    $fresh = $false
+    if ($state.LastCheck -and $state.LatestVersion) {
+        try {
+            $last = [datetime]::Parse($state.LastCheck, $null, 'RoundtripKind').ToLocalTime()
+            $fresh = ((Get-Date) - $last).TotalHours -lt 24
+        } catch { }
+    }
+    if ($fresh) {
+        Show-Latest $state
+    } elseif (ConvertTo-Bool (Get-Setting 'CheckForUpdates' $true)) {
+        Start-UpdateCheck
+    } else {
+        Set-UpdateStatus 'Check for updates' $P::TextFaint 'check' 'Click to ask GitHub for the latest version.'
+    }
+}
+
 # Nothing is focused to begin with, rather than the first tick box wearing a
 # focus edge before anyone has touched the keyboard.
-$form.Add_Shown({ $form.ActiveControl = $null })
+$form.Add_Shown({
+    $form.ActiveControl = $null
+    Initialize-UpdateStatus
+})
 
 $null = $form.ShowDialog()

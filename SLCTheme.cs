@@ -47,6 +47,7 @@ namespace SLCLauncher.Theme
         public static readonly Color AccentHover   = Hex(0x5A99EE);
         public static readonly Color AccentDim     = Hex(0x3162A7); // pressed accent
         public static readonly Color Bad           = Hex(0xE57373);
+        public static readonly Color Notice        = Hex(0xF0A030); // "update available"
     }
 
     static class Dpi

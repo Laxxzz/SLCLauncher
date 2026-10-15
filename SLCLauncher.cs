@@ -11,12 +11,17 @@
 // -- while the settings logic stays in the same language as the watcher that
 // reads them.
 //
+// Run as "SLCLauncher.exe --update-available <version>" -- which only the
+// watcher does, once per new version -- it instead shows a Windows notification
+// that the version is out, and opens the settings window if it is clicked.
+//
 // Install.ps1 compiles this with the C# compiler that ships with the .NET
 // Framework in every copy of Windows 10 and 11, so no prebuilt binary is kept
 // in the repository.
 
 using System;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Management.Automation;
 using System.Management.Automation.Runspaces;
@@ -38,8 +43,11 @@ static class Program
     const int SW_RESTORE = 9;
 
     [STAThread]
-    static int Main()
+    static int Main(string[] args)
     {
+        if (args.Length >= 2 && args[0] == "--update-available")
+            return ShowUpdateNotice(args[1]);
+
         // One settings window at a time. Opening it again brings the one
         // already open to the front rather than a second copy that could
         // save over the first.
@@ -109,6 +117,46 @@ static class Program
                     return 1;
                 }
             }
+        }
+        return 0;
+    }
+
+    // A tray icon's balloon, which Windows 10 and 11 show as an ordinary
+    // notification in the bottom right, under this program's name and icon.
+    // The icon is there only as long as the notification is: this process
+    // ends when it is clicked, dismissed or times out.
+    static int ShowUpdateNotice(string version)
+    {
+        bool open = false;
+        using (var icon = new NotifyIcon())
+        using (var giveUp = new System.Windows.Forms.Timer())
+        {
+            try { icon.Icon = Icon.ExtractAssociatedIcon(Application.ExecutablePath); }
+            catch { icon.Icon = SystemIcons.Application; }
+            icon.Text    = "SLCLauncher";
+            icon.Visible = true;
+
+            EventHandler openSettings = delegate { open = true; Application.ExitThread(); };
+            icon.BalloonTipClicked += openSettings;
+            icon.Click             += openSettings;
+            icon.BalloonTipClosed  += delegate { Application.ExitThread(); };
+
+            // In case Windows never reports the notification closed.
+            giveUp.Interval = 60000;
+            giveUp.Tick += delegate { Application.ExitThread(); };
+            giveUp.Start();
+
+            icon.ShowBalloonTip(10000, "SLCLauncher " + version + " is available",
+                                "Open SLCLauncher to download and install it. Your settings are kept.",
+                                ToolTipIcon.None);
+            Application.Run();
+            icon.Visible = false;
+        }
+
+        if (open)
+        {
+            // A fresh copy, so the settings window gets its usual single-copy check.
+            try { Process.Start(Application.ExecutablePath); } catch { }
         }
         return 0;
     }

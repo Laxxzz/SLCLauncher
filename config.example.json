@@ -4,14 +4,21 @@
   "CurseForgeExe":        "",
   "RaiderIOExe":          "",
   "WowUtilsBridgeExe":    "",
+  "WowAuditExe":          "",
+  "GuildsOfWowExe":       "",
+  "TSMExe":               "",
   "LaunchArchon":         true,
   "LaunchWowUp":          true,
   "LaunchCurseForge":     true,
   "LaunchRaiderIO":       true,
   "LaunchWowUtilsBridge": true,
+  "LaunchWowAudit":       true,
+  "LaunchGuildsOfWow":    true,
+  "LaunchTSM":            true,
   "GamePattern":          "^Wow(Classic|T|B)?$",
   "PollSeconds":          1,
   "LaunchDelaySeconds":   3,
   "QuitWithWow":          false,
-  "QuitGraceSeconds":     5
+  "QuitGraceSeconds":     5,
+  "CheckForUpdates":      true
 }
