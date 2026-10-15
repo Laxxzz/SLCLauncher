@@ -113,15 +113,16 @@ if ($vMatch) { $currentVersion = $vMatch.Matches[0].Groups[1].Value }
 # ------------------------------------------------------------------ window --
 $P = [SLCLauncher.Theme.Palette]
 
-$form = New-Object System.Windows.Forms.Form
+# No Windows title bar: the header below is the title bar, with its own
+# minimize and close buttons, and the window is dragged by it. The text still
+# names the window on the taskbar and in Alt+Tab.
+$form = New-Object SLCLauncher.Theme.ThemedWindow
 $form.Text            = 'SLCLauncher'
 $form.Font            = New-Object System.Drawing.Font('Segoe UI', 9.5)
-$form.FormBorderStyle = 'FixedSingle'
 $form.MaximizeBox     = $false
 $form.StartPosition   = 'CenterScreen'
 $form.AutoSize        = $true
 $form.AutoSizeMode    = 'GrowAndShrink'
-$form.BackColor       = $P::Canvas
 $form.ForeColor       = $P::Text
 
 # Fixed sizes are given at 96 DPI and scaled; text sizes itself from the font,
@@ -133,11 +134,7 @@ $pad      = S 18                  # window edge -> content
 $cardPad  = S 14                  # card edge -> its contents
 $contentW = S 470                 # the width every card shares
 $innerW   = $contentW - 2 * $cardPad
-
-# The title bar follows the window's colours rather than the system's. Done
-# when the handle exists, before the window is first drawn, so it never
-# flashes white.
-$form.Add_HandleCreated({ [SLCLauncher.Theme.Native]::ThemeTitleBar($form) })
+$top      = S 20                  # room above the title for the window buttons
 
 # The taskbar shows the window's icon, not the file's, so the icon embedded in
 # SLCLauncher.exe has to be given to the window as well. The .ico carries
@@ -214,21 +211,36 @@ function New-Hint {
     return $h
 }
 
-# The window is three bands stacked: header, body, footer.
+# The window is three bands stacked: header, body, footer. The page is the
+# canvas colour itself, not see-through: what shows round it is the window's
+# one-pixel edge.
 $page = New-Stack
+$page.BackColor = $P::Canvas
 $form.Controls.Add($page)
 
 # ------------------------------------------------------------------ header --
 $header = New-Object SLCLauncher.Theme.HeaderBand
-$header.Size   = New-Object System.Drawing.Size(($contentW + 2 * $pad), (S 72))
+$header.Size   = New-Object System.Drawing.Size(($contentW + 2 * $pad), ($top + (S 72)))
 $header.Margin = New-Object System.Windows.Forms.Padding(0)
 $page.Controls.Add($header)
+
+# Minimize and close, flush with the top right corner as Windows puts them.
+$buttonW = S 46; $buttonH = S 30
+$closeButton = New-Object SLCLauncher.Theme.CaptionButton
+$closeButton.IsClose  = $true
+$closeButton.Size     = New-Object System.Drawing.Size($buttonW, $buttonH)
+$closeButton.Location = New-Object System.Drawing.Point(($header.Width - $buttonW), 0)
+$header.Controls.Add($closeButton)
+$minButton = New-Object SLCLauncher.Theme.CaptionButton
+$minButton.Size     = New-Object System.Drawing.Size($buttonW, $buttonH)
+$minButton.Location = New-Object System.Drawing.Point(($header.Width - 2 * $buttonW), 0)
+$header.Controls.Add($minButton)
 
 $titleX = $pad
 if ($appIcon) {
     $logo = New-Object System.Windows.Forms.PictureBox
     $logo.Size      = New-Object System.Drawing.Size((S 40), (S 40))
-    $logo.Location  = New-Object System.Drawing.Point($pad, (S 16))
+    $logo.Location  = New-Object System.Drawing.Point($pad, ($top + (S 16)))
     $logo.SizeMode  = 'Zoom'
     $logo.BackColor = [System.Drawing.Color]::Transparent
     # The .ico's largest frame is stored as a PNG, which Icon.ToBitmap cannot
@@ -252,10 +264,10 @@ if ($appIcon) {
     $titleX = $pad + (S 52)
 }
 $title = New-Label 'SLCLauncher' $fontTitle $P::Text
-$title.Location = New-Object System.Drawing.Point($titleX, (S 12))
+$title.Location = New-Object System.Drawing.Point($titleX, ($top + (S 12)))
 $header.Controls.Add($title)
 $subtitle = New-Label 'Your World of Warcraft tools, started with the game.' $fontSmall $P::TextMuted
-$subtitle.Location = New-Object System.Drawing.Point(($titleX + (S 2)), (S 42))
+$subtitle.Location = New-Object System.Drawing.Point(($titleX + (S 2)), ($top + (S 42)))
 $header.Controls.Add($subtitle)
 
 # Top right: whether this is the latest version, and the version itself under
@@ -269,7 +281,13 @@ function Set-HeaderRight {
     param($Label, [int]$Y)
     $Label.Location = New-Object System.Drawing.Point(($header.Width - $pad - $Label.PreferredWidth), $Y)
 }
-Set-HeaderRight $versionLabel (S 42)
+Set-HeaderRight $versionLabel ($top + (S 42))
+
+# Anywhere on the header drags the window, as a title bar would -- except the
+# update line, which is a button whenever there is something to click.
+foreach ($c in @($header, $logo, $title, $subtitle, $versionLabel)) {
+    if ($c) { [SLCLauncher.Theme.Native]::DragsWindow($c) }
+}
 
 # -------------------------------------------------------------------- body --
 $body = New-Stack
@@ -580,7 +598,7 @@ function Set-UpdateStatus {
     $updateLabel.Cursor    = if ($Action) { [System.Windows.Forms.Cursors]::Hand } else { [System.Windows.Forms.Cursors]::Default }
     $upd.Action = $Action
     $tips.SetToolTip($updateLabel, $Tip)
-    Set-HeaderRight $updateLabel (S 18)
+    Set-HeaderRight $updateLabel ($top + (S 18))
 }
 
 function Show-Latest {

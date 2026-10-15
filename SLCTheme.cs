@@ -250,29 +250,160 @@ namespace SLCLauncher.Theme
         }
     }
 
+    // The window itself, with no Windows title bar: the header band is the
+    // title bar instead, carrying its own minimize and close buttons and
+    // dragging the window wherever it is not a control.
+    //
+    // A window with no border loses three things the title bar gave it, and
+    // they are put back here: its taskbar button minimizing and restoring it
+    // and offering a window menu (WS_MINIMIZEBOX, WS_SYSMENU), a shadow
+    // (CS_DROPSHADOW), and on Windows 11 its rounded corners. Its one-pixel
+    // edge is the window's own colour showing round the page, which the
+    // Padding of one leaves uncovered.
+    public class ThemedWindow : Form
+    {
+        const int WS_MINIMIZEBOX = 0x00020000;
+        const int WS_SYSMENU     = 0x00080000;
+        const int CS_DROPSHADOW  = 0x00020000;
+
+        public ThemedWindow()
+        {
+            FormBorderStyle = FormBorderStyle.None;
+            BackColor       = Palette.WindowEdge;
+            Padding         = new Padding(1);
+        }
+
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                var cp = base.CreateParams;
+                cp.Style     |= WS_MINIMIZEBOX | WS_SYSMENU;
+                cp.ClassStyle |= CS_DROPSHADOW;
+                return cp;
+            }
+        }
+
+        protected override void OnHandleCreated(EventArgs e)
+        {
+            base.OnHandleCreated(e);
+            Native.RoundCorners(this);
+        }
+    }
+
+    // Minimize or close, drawn as Windows 11 draws its own: a flat cell flush
+    // with the window's top right corner, lit on hover, the close cell red.
+    public class CaptionButton : Control
+    {
+        bool hover, down;
+        public bool IsClose { get; set; }
+
+        public CaptionButton()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+            SetStyle(ControlStyles.Selectable, false);   // not a tab stop: Alt+F4 and the taskbar cover the keyboard
+        }
+
+        static readonly Color CloseHover = Color.FromArgb(0xC4, 0x2B, 0x1C);
+        static readonly Color CloseDown  = Color.FromArgb(0x94, 0x1F, 0x14);
+
+        protected override void OnMouseEnter(EventArgs e) { hover = true;  Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hover = false; down = false; Invalidate(); base.OnMouseLeave(e); }
+        protected override void OnMouseDown(MouseEventArgs e) { if (e.Button == MouseButtons.Left) { down = true; Invalidate(); } base.OnMouseDown(e); }
+        protected override void OnMouseUp(MouseEventArgs e) { down = false; Invalidate(); base.OnMouseUp(e); }
+
+        protected override void OnClick(EventArgs e)
+        {
+            base.OnClick(e);
+            var form = FindForm();
+            if (form == null) return;
+            // The window menu's own commands, so Windows minimizes and closes
+            // it exactly as from the taskbar -- setting WindowState does
+            // nothing to a window shown with ShowDialog.
+            Native.SystemCommand(form, IsClose ? Native.SC_CLOSE : Native.SC_MINIMIZE);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            Color fill = Color.Empty;
+            if (IsClose && (hover || down)) fill = down ? CloseDown : CloseHover;
+            else if (down)  fill = Palette.ControlDown;
+            else if (hover) fill = Palette.ControlHover;
+            if (fill.IsEmpty)
+                using (var b = new LinearGradientBrush(new Rectangle(0, -Top, Width, Parent.Height),
+                                                       Palette.HeaderTop, Palette.HeaderBottom, 90f))
+                    g.FillRectangle(b, ClientRectangle);   // the header's own gradient, so the cell is invisible at rest
+            else
+                using (var b = new SolidBrush(fill)) g.FillRectangle(b, ClientRectangle);
+
+            // A ten-pixel glyph, centred, one pixel thick at any scale but 2x.
+            float s = Dpi.Scale(this, 100) / 100f;
+            float half = 5f * s, cx = Width / 2f, cy = Height / 2f;
+            Color ink = (IsClose && (hover || down)) ? Color.White : (hover ? Palette.Text : Palette.TextMuted);
+            using (var pen = new Pen(ink, Math.Max(1f, (float)Math.Floor(s))))
+            {
+                if (IsClose)
+                {
+                    g.SmoothingMode = SmoothingMode.AntiAlias;
+                    g.DrawLine(pen, cx - half, cy - half, cx + half, cy + half);
+                    g.DrawLine(pen, cx - half, cy + half, cx + half, cy - half);
+                }
+                else
+                {
+                    g.DrawLine(pen, cx - half, cy, cx + half, cy);
+                }
+            }
+        }
+    }
+
     public static class Native
     {
         [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
         [DllImport("dwmapi.dll")] static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+        [DllImport("user32.dll")] static extern bool ReleaseCapture();
+        [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd, int msg, IntPtr wParam, IntPtr lParam);
 
-        const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
+        const int DWMWA_WINDOW_CORNER_PREFERENCE = 33;
         const int DWMWA_BORDER_COLOR  = 34;
-        const int DWMWA_CAPTION_COLOR = 35;
-        const int DWMWA_TEXT_COLOR    = 36;
+        const int DWMWCP_ROUND        = 2;
+        const int WM_NCLBUTTONDOWN    = 0xA1;
+        const int HTCAPTION           = 2;
+        const int WM_SYSCOMMAND       = 0x112;
+        public const int SC_MINIMIZE  = 0xF020;
+        public const int SC_CLOSE     = 0xF060;
+
+        public static void SystemCommand(Form form, int command)
+        {
+            SendMessage(form.Handle, WM_SYSCOMMAND, (IntPtr)command, IntPtr.Zero);
+        }
 
         static int ColorRef(Color c) { return c.R | (c.G << 8) | (c.B << 16); }
 
-        // A dark title bar in the band colour. Windows 10 honours only the
-        // dark mode flag; Windows 11 takes the exact colours too. Either way
-        // a refusal just leaves the system's own title bar.
-        public static void ThemeTitleBar(Form form)
+        // Windows 11 rounds a window's corners only when asked, once it has no
+        // title bar. Windows 10 does not know the attribute and refuses it,
+        // which leaves square corners -- what every window there has anyway.
+        public static void RoundCorners(Form form)
         {
-            IntPtr h = form.Handle;
-            int on = 1, caption = ColorRef(Palette.Band), border = ColorRef(Palette.WindowEdge), text = ColorRef(Palette.Text);
-            DwmSetWindowAttribute(h, DWMWA_USE_IMMERSIVE_DARK_MODE, ref on, 4);
-            DwmSetWindowAttribute(h, DWMWA_CAPTION_COLOR, ref caption, 4);
-            DwmSetWindowAttribute(h, DWMWA_BORDER_COLOR, ref border, 4);
-            DwmSetWindowAttribute(h, DWMWA_TEXT_COLOR, ref text, 4);
+            int round = DWMWCP_ROUND, border = ColorRef(Palette.WindowEdge);
+            DwmSetWindowAttribute(form.Handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, 4);
+            DwmSetWindowAttribute(form.Handle, DWMWA_BORDER_COLOR, ref border, 4);
+        }
+
+        // Pressing the mouse on this control drags the window, exactly as on a
+        // title bar: Windows is told the press landed on its caption and does
+        // the rest, Aero Snap included.
+        public static void DragsWindow(Control surface)
+        {
+            surface.MouseDown += delegate(object sender, MouseEventArgs e)
+            {
+                if (e.Button != MouseButtons.Left) return;
+                var form = ((Control)sender).FindForm();
+                if (form == null) return;
+                ReleaseCapture();
+                SendMessage(form.Handle, WM_NCLBUTTONDOWN, (IntPtr)HTCAPTION, IntPtr.Zero);
+            };
         }
     }
 }
