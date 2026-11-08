@@ -228,6 +228,10 @@ $fontSmall   = New-Object System.Drawing.Font('Segoe UI', 8.75)
 function New-Label {
     param([string]$Text, $Font = $form.Font, $Color = $P::Text, [int]$Width = 0)
     $l = New-Object System.Windows.Forms.Label
+    # GDI, as the themed controls draw, not GDI+: GDI+ spaces a line by its
+    # whole length, so "...start it with Retail" and "...with Anniversary"
+    # would set the same opening words differently from tab to tab.
+    $l.UseCompatibleTextRendering = $false
     $l.Text      = $Text
     $l.Font      = $Font
     $l.ForeColor = $Color
@@ -383,9 +387,22 @@ $body.Controls.Add($versionsHost)
 # there is no second copy of any setting to fall out of step.
 $versionStates = New-Object System.Collections.ArrayList
 
+function Update-VersionsHeight {
+    # Every tab as tall as the tallest, so switching tabs never resizes the
+    # window or moves Updates: the window stays put and only the panel changes.
+    $tallest = 0
+    foreach ($s in $versionStates) {
+        $tallest = [math]::Max($tallest, $s.Panel.GetPreferredSize([System.Drawing.Size]::Empty).Height)
+    }
+    $versionsHost.MinimumSize = New-Object System.Drawing.Size(0, $tallest)
+}
+
 function Update-Empty {
+    # After a program is added or removed: the "none yet" line, and the
+    # height every tab shares.
     param($State)
     $State.Empty.Visible = $State.CustomRows.Count -eq 0
+    Update-VersionsHeight
 }
 
 function Get-ShortPath {
@@ -422,6 +439,7 @@ function Add-CustomRow {
 
     $pathW = $innerW - (S 178) - (S 36)
     $pathLabel = New-Object System.Windows.Forms.Label
+    $pathLabel.UseCompatibleTextRendering = $false   # as New-Label, and as Get-ShortPath measures
     $pathLabel.Text      = Get-ShortPath $Path $fontSmall $pathW
     $pathLabel.Font      = $fontSmall
     $pathLabel.ForeColor = $P::TextMuted
@@ -503,7 +521,12 @@ function New-VersionPanel {
     $state.Rows = New-Stack
     $own.Controls.Add($state.Rows)
     $state.Empty = New-Label "None yet. Add any program to start it with $Version." $form.Font $P::TextMuted
-    $state.Empty.Margin = New-Object System.Windows.Forms.Padding(0, (S 2), 0, (S 6))
+    # Exactly one program's row tall, so a tab with none and a tab with one
+    # put everything below at the same height.
+    $state.Empty.AutoSize  = $false
+    $state.Empty.Size      = New-Object System.Drawing.Size($innerW, (S 32))
+    $state.Empty.TextAlign = 'MiddleLeft'
+    $state.Empty.Margin    = New-Object System.Windows.Forms.Padding(0)
     $state.Rows.Controls.Add($state.Empty)
 
     foreach ($a in @(Get-VersionSetting $Version 'CustomApps' @())) {
@@ -585,14 +608,23 @@ foreach ($state in $versionStates) {
 
 function Select-Version {
     param([string]$Key)
-    $form.SuspendLayout()
+    # The new panel is shown before the old is hidden, and nothing is drawn
+    # until both are done, so no in-between layout ever reaches the screen.
+    $frozen = $body.IsHandleCreated
+    if ($frozen) { [SLCLauncher.Theme.Native]::Freeze($body) }
+    $versionsHost.SuspendLayout()
+    foreach ($s in $versionStates) {
+        if ($s.Key -eq $Key) { $s.Panel.Visible = $true }
+    }
     foreach ($s in $versionStates) {
         $on = $s.Key -eq $Key
-        $s.Panel.Visible = $on
-        $s.Tab.Selected  = $on
+        if (-not $on) { $s.Panel.Visible = $false }
+        $s.Tab.Selected = $on
     }
-    $form.ResumeLayout($true)
+    $versionsHost.ResumeLayout($true)
+    if ($frozen) { [SLCLauncher.Theme.Native]::Thaw($body) }
 }
+Update-VersionsHeight
 Select-Version $versionStates[0].Key
 
 # ----------------------------------------------------------------- updates --

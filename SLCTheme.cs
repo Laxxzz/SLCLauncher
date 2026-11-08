@@ -321,6 +321,7 @@ namespace SLCLauncher.Theme
         const int WS_MINIMIZEBOX = 0x00020000;
         const int WS_SYSMENU     = 0x00080000;
         const int CS_DROPSHADOW  = 0x00020000;
+        const int WS_EX_COMPOSITED = 0x02000000;
 
         public ThemedWindow()
         {
@@ -336,6 +337,10 @@ namespace SLCLauncher.Theme
                 var cp = base.CreateParams;
                 cp.Style     |= WS_MINIMIZEBOX | WS_SYSMENU;
                 cp.ClassStyle |= CS_DROPSHADOW;
+                // Every control in the window painted into one buffer and put
+                // on screen at once: the see-through labels and boxes would
+                // otherwise each be seen clearing to the card and redrawing.
+                cp.ExStyle   |= WS_EX_COMPOSITED;
                 return cp;
             }
         }
@@ -449,6 +454,25 @@ namespace SLCLauncher.Theme
             int round = DWMWCP_ROUND, border = ColorRef(Palette.WindowEdge);
             DwmSetWindowAttribute(form.Handle, DWMWA_WINDOW_CORNER_PREFERENCE, ref round, 4);
             DwmSetWindowAttribute(form.Handle, DWMWA_BORDER_COLOR, ref border, 4);
+        }
+
+        [DllImport("user32.dll")] static extern bool RedrawWindow(IntPtr hWnd, IntPtr rect, IntPtr region, int flags);
+        const int WM_SETREDRAW = 0x000B;
+        const int RDW_INVALIDATE = 0x0001, RDW_ERASE = 0x0004, RDW_ALLCHILDREN = 0x0080, RDW_UPDATENOW = 0x0100;
+
+        // Stops a control and everything in it drawing, so a change made in
+        // several steps -- one panel hidden, another shown -- is never seen
+        // half done. Thaw draws the finished result in one pass.
+        public static void Freeze(Control c)
+        {
+            SendMessage(c.Handle, WM_SETREDRAW, IntPtr.Zero, IntPtr.Zero);
+        }
+
+        public static void Thaw(Control c)
+        {
+            SendMessage(c.Handle, WM_SETREDRAW, (IntPtr)1, IntPtr.Zero);
+            RedrawWindow(c.Handle, IntPtr.Zero, IntPtr.Zero,
+                         RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
         }
 
         // Pressing the mouse on this control drags the window, exactly as on a
