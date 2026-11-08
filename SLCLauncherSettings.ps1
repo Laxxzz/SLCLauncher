@@ -207,23 +207,45 @@ function S { param([double]$Px) [int][math]::Round($Px * $scale) }
 
 $pad      = S 18                  # window edge -> content
 $cardPad  = S 14                  # card edge -> its contents
-# The width every card shares comes from the app grid: two columns, each an
-# app and its Tray box, with nothing to the right of the second Tray. Tray
-# sits a short gap after the longest name; the second column starts where it
-# always has.
-$measure = {
+# The width every card shares is as narrow as the window's contents allow:
+# the app list -- one column of apps, each with its Tray box a short gap
+# after the longest name -- and the widest line elsewhere that cannot wrap.
+$fontColHead = New-Object System.Drawing.Font('Segoe UI Semibold', 8.25)
+$measureCheck = {
     param([string]$Text)
     $c = New-Object SLCLauncher.Theme.ThemedCheckBox
     $c.Font = $form.Font
     $c.Text = $Text
     $c.GetPreferredSize([System.Drawing.Size]::Empty).Width
 }
-$longest  = ($builtIns | ForEach-Object { & $measure $_.Label } | Measure-Object -Maximum).Maximum
+$measureText = {
+    param([string]$Text, $Font)
+    [System.Windows.Forms.TextRenderer]::MeasureText($Text, $Font).Width
+}
+$longest  = ($builtIns | ForEach-Object { & $measureCheck $_.Label } | Measure-Object -Maximum).Maximum
 $appColW  = $longest + [int](0.35 * [math]::Max(0, (S 206) - $longest))
-$trayColW = (& $measure 'Tray') + (S 2)
-$halfW    = S 306                 # where the second column starts
-$innerW   = $halfW + $appColW + $trayColW
-$contentW = $innerW + 2 * $cardPad
+$trayColW = [math]::Max((& $measureText 'Tray' $fontColHead), (S 20)) + (S 4)
+$removeW  = S 26
+$customRowH = S 46                # a program of your own: its name, and its path beneath
+$innerNeed = @(
+    ($appColW + $trayColW + (S 8) + $removeW),            # a program of your own: name, Tray, remove
+    (& $measureCheck 'Close them all when Anniversary closes'),
+    (& $measureCheck 'Check for a new version once a day')
+) | Measure-Object -Maximum | ForEach-Object { $_.Maximum }
+
+# The header's subtitle and update line, and the footer's status and buttons,
+# share a line each.
+$smallFont = New-Object System.Drawing.Font('Segoe UI', 8.75)
+$probe = New-Object SLCLauncher.Theme.ThemedButton
+$probe.Font = $form.Font
+$probe.Text = 'Cancel'
+$buttonNeed = $probe.GetPreferredSize([System.Drawing.Size]::Empty).Width
+$headerNeed = (S 54) + (& $measureText 'Your World of Warcraft tools, started with the game.' $smallFont) +
+              (S 24) + (& $measureText 'Update available' $smallFont)
+$footerNeed = (& $measureText 'Changes apply the next time WoW starts.' $smallFont) + (S 16) + 2 * $buttonNeed + (S 8)
+
+$contentW = [int](@(($innerNeed + 2 * $cardPad), $headerNeed, $footerNeed) | Measure-Object -Maximum).Maximum
+$innerW   = $contentW - 2 * $cardPad
 $top      = S 20                  # room above the title for the window buttons
 
 # The taskbar shows the window's icon, not the file's, so the icon embedded in
@@ -299,12 +321,14 @@ function New-Check {
 }
 
 function New-TrayCheck {
-    # "Tray", beside an app: start it with its window closed to the tray.
-    # Greyed out while the app itself is unticked, since it would not start.
+    # The Tray box beside an app, under the Tray heading: start it with its
+    # window closed to the tray. No text of its own. Greyed out while the app
+    # itself is unticked, since it would not start.
     param($AppBox, [bool]$Checked, [string]$AppName)
-    $t = New-Check 'Tray' $Checked
-    $t.ForeColor = $P::TextMuted
-    $t.Enabled   = $AppBox.Checked
+    $t = New-Check '' $Checked
+    $t.AutoSize = $false
+    $t.Size     = New-Object System.Drawing.Size($trayColW, (S 26))
+    $t.Enabled  = $AppBox.Checked
     $tips.SetToolTip($t, "Start $AppName with its window closed to the system tray")
     $AppBox.Tag  = $t
     $AppBox.Add_CheckedChanged({ param($sender) $sender.Tag.Enabled = $sender.Checked })
@@ -451,28 +475,31 @@ function Get-ShortPath {
 }
 
 function Add-CustomRow {
-    # One program of a version's own: its tick box, its path, and a button to drop it.
+    # One program of a version's own: its tick box and Tray box, lined up with
+    # the apps above, a button to drop it, and its path on a line beneath.
     param($State, [string]$Name, [string]$Path, [bool]$Enabled, [bool]$InTray)
 
     $row = New-Object System.Windows.Forms.Panel
-    $row.Size      = New-Object System.Drawing.Size($innerW, (S 32))
+    $row.Size      = New-Object System.Drawing.Size($innerW, $customRowH)
     $row.Margin    = New-Object System.Windows.Forms.Padding(0)
     $row.BackColor = [System.Drawing.Color]::Transparent
 
     $box = New-Check $Name $Enabled
     $box.AutoSize = $false
-    $box.Size     = New-Object System.Drawing.Size((S 210), (S 32))
+    # A little short of the Tray column, so a long name, cut off with "...",
+    # stops clear of the box.
+    $box.Size     = New-Object System.Drawing.Size(($appColW - (S 10)), (S 26))
     $box.Location = New-Object System.Drawing.Point(0, 0)
+    $tips.SetToolTip($box, $Name)
     $row.Controls.Add($box)
 
-    $trayW = S 90
     $tray = New-TrayCheck $box $InTray $Name
-    $tray.AutoSize = $false
-    $tray.Size     = New-Object System.Drawing.Size($trayW, (S 32))
-    $tray.Location = New-Object System.Drawing.Point(($innerW - (S 36) - $trayW), 0)
+    $tray.Location = New-Object System.Drawing.Point($appColW, 0)
     $row.Controls.Add($tray)
 
-    $pathW = $innerW - (S 218) - (S 36) - $trayW - (S 8)
+    # Under the name, where the name's text starts.
+    $pathX = S 25
+    $pathW = $innerW - $pathX - $removeW - (S 8)
     $pathLabel = New-Object System.Windows.Forms.Label
     $pathLabel.UseCompatibleTextRendering = $false   # as New-Label, and as Get-ShortPath measures
     $pathLabel.Text      = Get-ShortPath $Path $fontSmall $pathW
@@ -481,8 +508,8 @@ function Add-CustomRow {
     $pathLabel.BackColor = [System.Drawing.Color]::Transparent
     $pathLabel.AutoSize  = $false
     $pathLabel.TextAlign = 'MiddleLeft'
-    $pathLabel.Location  = New-Object System.Drawing.Point((S 218), 0)
-    $pathLabel.Size      = New-Object System.Drawing.Size($pathW, (S 32))
+    $pathLabel.Location  = New-Object System.Drawing.Point($pathX, (S 24))
+    $pathLabel.Size      = New-Object System.Drawing.Size($pathW, (S 18))
     $tips.SetToolTip($pathLabel, $Path)
     $row.Controls.Add($pathLabel)
 
@@ -490,8 +517,8 @@ function Add-CustomRow {
     $remove.Text     = [string][char]0x00D7   # a multiplication sign; Segoe UI has it, so no emoji fallback
     $remove.Font     = New-Object System.Drawing.Font('Segoe UI', 12)
     $remove.AutoSize = $false
-    $remove.Size     = New-Object System.Drawing.Size((S 26), (S 26))
-    $remove.Location = New-Object System.Drawing.Point(($innerW - (S 26)), (S 3))
+    $remove.Size     = New-Object System.Drawing.Size($removeW, $removeW)
+    $remove.Location = New-Object System.Drawing.Point(($innerW - $removeW), 0)
     $tips.SetToolTip($remove, "Remove $Name")
     $row.Controls.Add($remove)
 
@@ -525,19 +552,30 @@ function New-VersionPanel {
     # --------------------------------------------------- the built-in apps --
     $apps = Add-Section 'Start with World of Warcraft' $panel
 
-    # Two columns, each an app and its "In tray" beside it: the names are
-    # short, and one long column left most of the card empty.
+    # One column of apps, each with its Tray box beside it, under an Apps and
+    # a Tray heading that take a row of their own.
     $grid = New-Object System.Windows.Forms.TableLayoutPanel
-    $grid.ColumnCount  = 4
-    $grid.RowCount     = [math]::Ceiling($builtIns.Count / 2)
+    $grid.ColumnCount  = 2
+    $grid.RowCount     = $builtIns.Count + 1
     $grid.AutoSize     = $true
     $grid.AutoSizeMode = 'GrowAndShrink'
     $grid.BackColor    = [System.Drawing.Color]::Transparent
     $grid.Margin       = New-Object System.Windows.Forms.Padding(0)
-    foreach ($w in @($appColW, ($halfW - $appColW), $appColW, $trayColW)) {
+    foreach ($w in @($appColW, $trayColW)) {
         $null = $grid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle('Absolute', $w)))
     }
     $apps.Controls.Add($grid)
+
+    $col = 0
+    foreach ($text in 'Apps', 'Tray') {
+        $h = New-Label $text $fontColHead $P::TextMuted
+        $h.AutoSize  = $false
+        $h.Size      = New-Object System.Drawing.Size(($appColW, $trayColW)[$col], (S 26))
+        $h.TextAlign = 'BottomLeft'
+        $h.Margin    = New-Object System.Windows.Forms.Padding(0, 0, 0, (S 4))
+        $grid.Controls.Add($h, $col, 0)
+        $col++
+    }
 
     $trayApps = @(Get-VersionSetting $Version 'TrayApps' @())
     for ($i = 0; $i -lt $builtIns.Count; $i++) {
@@ -545,11 +583,11 @@ function New-VersionPanel {
         # Defaults as the watcher's: Retail starts everything, a version new
         # to SLCLauncher starts nothing until it is ticked here.
         $box = New-Check $b.Label (ConvertTo-Bool (Get-VersionSetting $Version $b.Key ($Version -eq 'Retail')))
-        $col = 2 * [int][math]::Floor($i / $grid.RowCount)
-        $grid.Controls.Add($box, $col, $i % $grid.RowCount)
+        $grid.Controls.Add($box, 0, $i + 1)
         $state.AppBoxes[$b.Key] = $box
         $tray = New-TrayCheck $box ($trayApps -contains $b.Key) $b.Label
-        $grid.Controls.Add($tray, $col + 1, $i % $grid.RowCount)
+        $tray.Dock = 'Fill'
+        $grid.Controls.Add($tray, 1, $i + 1)
         $state.TrayBoxes[$b.Key] = $tray
     }
     $apps.Controls.Add((New-Hint ("Started when $Version starts. Anything ticked that is not installed is skipped. " +
@@ -565,7 +603,7 @@ function New-VersionPanel {
     # Exactly one program's row tall, so a tab with none and a tab with one
     # put everything below at the same height.
     $state.Empty.AutoSize  = $false
-    $state.Empty.Size      = New-Object System.Drawing.Size($innerW, (S 32))
+    $state.Empty.Size      = New-Object System.Drawing.Size($innerW, $customRowH)
     $state.Empty.TextAlign = 'MiddleLeft'
     $state.Empty.Margin    = New-Object System.Windows.Forms.Padding(0)
     $state.Rows.Controls.Add($state.Empty)
