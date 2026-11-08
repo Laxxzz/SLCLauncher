@@ -284,10 +284,10 @@ function New-Check {
 }
 
 function New-TrayCheck {
-    # "In tray", beside an app: start it with its window closed to the tray.
+    # "Tray", beside an app: start it with its window closed to the tray.
     # Greyed out while the app itself is unticked, since it would not start.
     param($AppBox, [bool]$Checked, [string]$AppName)
-    $t = New-Check 'In tray' $Checked
+    $t = New-Check 'Tray' $Checked
     $t.ForeColor = $P::TextMuted
     $t.Enabled   = $AppBox.Checked
     $tips.SetToolTip($t, "Start $AppName with its window closed to the system tray")
@@ -540,8 +540,21 @@ function New-VersionPanel {
         $grid.Controls.Add($tray, $col + 1, $i % $grid.RowCount)
         $state.TrayBoxes[$b.Key] = $tray
     }
+
+    # Tray sits close to the longest name rather than at the far side of a
+    # half-card column: the gap that would leave, cut by 65%. Its column takes
+    # up the rest, so the right-hand apps still start halfway across.
+    $longest = 0
+    foreach ($k in $state.AppBoxes.Keys) {
+        $longest = [math]::Max($longest, $state.AppBoxes[$k].GetPreferredSize([System.Drawing.Size]::Empty).Width)
+    }
+    $tight = [math]::Min($appColW, $longest + [int](0.35 * [math]::Max(0, $appColW - $longest)))
+    foreach ($i in 0, 2) {
+        $grid.ColumnStyles[$i].Width     = $tight
+        $grid.ColumnStyles[$i + 1].Width = $appColW + $trayColW - $tight
+    }
     $apps.Controls.Add((New-Hint ("Started when $Version starts. Anything ticked that is not installed is skipped. " +
-        'In tray closes the app''s window as soon as it opens, so it waits in the tray instead of covering ' +
+        'Tray closes the app''s window as soon as it opens, so it waits in the tray instead of covering ' +
         'your screen; an app with no tray icon is started again and left open.')))
 
     # -------------------------------------------------- your own programs ---
