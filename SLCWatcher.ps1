@@ -779,8 +779,9 @@ function Test-NameMatch {
 # ---------------------------------------------------------- start in tray --
 # Each app a version marks "in tray" -- TrayApps for the built-ins, InTray on
 # a program of your own -- has its window closed as soon as this watcher
-# starts it, so a game launch does not bury the desktop under five windows. Closing means what the X button sends, which an app with a tray
-# icon reads as "go to the tray". Hiding the window behind the app's back
+# starts it, so a game launch does not bury the desktop under five windows.
+# Closing means what the X button sends, which an app with a tray icon reads
+# as "go to the tray". Hiding the window behind the app's back
 # would be quicker, but an app with no tray icon would then be left running
 # with no way back to it.
 #
@@ -1095,7 +1096,8 @@ function Write-Settings {
         if ($trayN.Count) { Write-Log ("{0,-10}  in the tray: {1}" -f '', ($trayN -join ', ')) }
     }
     Write-Log "watching  : $($cfg.GamePattern)  every $($cfg.PollSeconds)s"
-    Write-Log "delay     : $($cfg.LaunchDelaySeconds)s after the game is spotted"    if ($cfg.QuitGraceSeconds -gt 0) {
+    Write-Log "delay     : $($cfg.LaunchDelaySeconds)s after the game is spotted"
+    if ($cfg.QuitGraceSeconds -gt 0) {
         Write-Log "quit-with-wow: stopping anything still up after $($cfg.QuitGraceSeconds)s"
     } else {
         Write-Log 'quit-with-wow: asking only'

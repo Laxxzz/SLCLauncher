@@ -207,9 +207,9 @@ function S { param([double]$Px) [int][math]::Round($Px * $scale) }
 
 $pad      = S 18                  # window edge -> content
 $cardPad  = S 14                  # card edge -> its contents
-# The width every card shares is as narrow as the window's contents allow:
-# the app list -- one column of apps, each with its Tray box a short gap
-# after the longest name -- and the widest line elsewhere that cannot wrap.
+# The width every card shares: 418, unless something that cannot wrap needs
+# more -- the app list with its Tray column, a checkbox's text, the header's
+# subtitle beside the version, the footer's status beside its buttons.
 $fontColHead = New-Object System.Drawing.Font('Segoe UI Semibold', 8.25)
 $measureCheck = {
     param([string]$Text)
@@ -804,8 +804,6 @@ function Set-Setting {
 
 $saveButton.Add_Click({
     Set-Setting 'CheckForUpdates' $updateBox.Checked
-    # A key from the build that had one switch for every app.
-    $config.PSObject.Properties.Remove('StartInTray')
 
     # Versions not installed here keep whatever was saved for them.
     $versions = [ordered]@{}

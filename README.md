@@ -121,9 +121,9 @@ addon manager halfway through an update.
 Tick **Tray** beside an app, or beside a program of your own, and when
 SLCLauncher starts it its window is closed, as **X** would, the moment it
 appears, so it waits in the tray instead of covering the screen. Each version
-has its own choice. Apps that were already open are left
-alone. An app with no tray icon quits when closed; it is started again, left
-open, and not closed again until the watcher restarts.
+has its own choice. Apps that were already open are left alone. An app with
+no tray icon quits when closed; it is started again, left open, and not
+closed again until the watcher restarts.
 
 ## Updates
 
