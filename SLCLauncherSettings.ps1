@@ -229,7 +229,7 @@ $trayX     = (S 359) - [int]($trayColW / 2)   # the Tray column, centred 359 in 
 # centred over their boxes without running off the card.
 $appsIndent = [math]::Max(0, [int](((& $measureText 'Apps' $fontColHead) - $checkBoxW) / 2) + 1)
 $removeW    = S 22
-$customRowH = S 46                # a program of your own: its name, and its path beneath
+$customRowH = S 52                # a program of your own: its name, and its path beneath
 $innerNeed = @(
     ($trayX + $trayColW),
     (& $measureCheck 'Close them all when Anniversary closes'),
@@ -498,14 +498,16 @@ function Add-CustomRow {
     $tips.SetToolTip($box, $Name)
     $row.Controls.Add($box)
 
+    # The Tray box and the remove button are centred on the row's height,
+    # name and path together. The box draws in the middle of its height.
     $tray = New-TrayCheck $box $InTray $Name
+    $tray.Size     = New-Object System.Drawing.Size($checkBoxW, $customRowH)
     $tray.Location = New-Object System.Drawing.Point(($trayX + [int](($trayColW - $checkBoxW) / 2)), 0)
     $row.Controls.Add($tray)
 
-    # Under the name, where the name's text starts; the remove button ends
-    # the line, clear of the Tray column above it.
+    # Under the name, a little below it, where the name's text starts.
     $pathX = $appsIndent + (S 25)
-    $pathW = $innerW - $pathX - $removeW - (S 8)
+    $pathW = $trayX - $pathX - (S 8)
     $pathLabel = New-Object System.Windows.Forms.Label
     $pathLabel.UseCompatibleTextRendering = $false   # as New-Label, and as Get-ShortPath measures
     $pathLabel.Text      = Get-ShortPath $Path $fontSmall $pathW
@@ -514,7 +516,7 @@ function Add-CustomRow {
     $pathLabel.BackColor = [System.Drawing.Color]::Transparent
     $pathLabel.AutoSize  = $false
     $pathLabel.TextAlign = 'MiddleLeft'
-    $pathLabel.Location  = New-Object System.Drawing.Point($pathX, (S 24))
+    $pathLabel.Location  = New-Object System.Drawing.Point($pathX, (S 30))
     $pathLabel.Size      = New-Object System.Drawing.Size($pathW, (S 18))
     $tips.SetToolTip($pathLabel, $Path)
     $row.Controls.Add($pathLabel)
@@ -524,7 +526,7 @@ function Add-CustomRow {
     $remove.Font     = New-Object System.Drawing.Font('Segoe UI', 11)
     $remove.AutoSize = $false
     $remove.Size     = New-Object System.Drawing.Size($removeW, $removeW)
-    $remove.Location = New-Object System.Drawing.Point(($innerW - $removeW), (S 22))
+    $remove.Location = New-Object System.Drawing.Point(($innerW - $removeW), [int](($customRowH - $removeW) / 2))
     $tips.SetToolTip($remove, "Remove $Name")
     $row.Controls.Add($remove)
 
