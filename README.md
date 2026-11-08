@@ -13,7 +13,7 @@ when WoW starts. You pick
 them in one small settings window, and an invisible background watcher does the
 rest. Part of the SLC family of WoW tools, alongside the SimpleLootCouncil addon.
 
-![The SLCLauncher settings window](docs/SLCLauncher_v8TJL7ngdU.png)
+![The SLCLauncher settings window](docs/SLCLauncher_1pmzKvRd7X.png)
 
 - **Starts only what you pick.** Apps that aren't installed are skipped, and
   apps already open are left alone.
