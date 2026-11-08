@@ -523,7 +523,7 @@ function Add-CustomRow {
 
     $remove = New-Object SLCLauncher.Theme.ThemedButton
     $remove.Text     = [string][char]0x00D7   # a multiplication sign; Segoe UI has it, so no emoji fallback
-    $remove.Font     = New-Object System.Drawing.Font('Segoe UI', 8)
+    $remove.Cross    = $true              # drawn, so it sits dead centre; the text stays for screen readers
     $remove.AutoSize = $false
     $remove.Size     = New-Object System.Drawing.Size($removeW, $removeW)
     # Centred on the path's line.

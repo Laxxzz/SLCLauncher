@@ -147,6 +147,8 @@ namespace SLCLauncher.Theme
     {
         bool hover, down;
         public bool Primary { get; set; }
+        // Draws a centred cross instead of the text: a close or remove button.
+        public bool Cross { get; set; }
 
         public ThemedButton()
         {
@@ -192,6 +194,21 @@ namespace SLCLauncher.Theme
             if (Focused && ShowFocusCues && live)
                 using (var p = new Pen(Primary ? Color.White : Palette.Accent)) g.DrawRectangle(p, Rectangle.Inflate(r, -2, -2));
 
+            if (Cross)
+            {
+                // Two strokes about the box's exact centre: a glyph's side
+                // bearings leave a text "x" visibly off centre in a small box.
+                float c = (Width - 1) / 2f, m = (Height - 1) / 2f, h = Math.Min(Width, Height) * 0.2f;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                using (var p = new Pen(live ? ForeColor : Palette.TextFaint, Math.Max(1.5f, Dpi.Scale(this, 3) / 2f)))
+                {
+                    p.StartCap = p.EndCap = LineCap.Round;
+                    g.DrawLine(p, c - h, m - h, c + h, m + h);
+                    g.DrawLine(p, c - h, m + h, c + h, m - h);
+                }
+                g.SmoothingMode = SmoothingMode.None;
+                return;
+            }
             TextRenderer.DrawText(g, Text, Font, r, live ? ForeColor : Palette.TextFaint,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         }
