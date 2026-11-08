@@ -140,7 +140,7 @@ it within a second of a save. Keys the settings window doesn't show are kept.
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `Versions` | defaults | One object per version (`Retail`, `Forever`, `MoP`, `Anniversary`) holding the three keys below. |
-| ↳ `LaunchArchon` … `LaunchTSM` | `true` | Start that app with this version. |
+| ↳ `LaunchArchon` … `LaunchTSM` | `true` for Retail, else `false` | Start that app with this version. |
 | ↳ `CustomApps` | none | Your own programs: `Name`, `Path`, `Enabled`. |
 | ↳ `QuitWithWow` | `false` | Close the apps when this version exits. |
 | `ArchonExe` … `TSMExe` | auto | Full path, only if auto-detection misses the app. |
@@ -152,7 +152,7 @@ it within a second of a save. Keys the settings window doesn't show are kept.
 
 A `config.json` from before versions, with those keys at the top level, is read
 as Retail's settings and moved into `Versions` the next time you save. A version
-with no settings of its own uses the defaults. An invalid save is logged and ignored. `config.example.json` lists every key. A
+with no settings of its own starts nothing, except Retail, which starts every app. An invalid save is logged and ignored. `config.example.json` lists every key. A
 `config.json` placed next to `Install.cmd` is applied on each install.
 
 `Install.ps1` also takes `-NoArchon`, `-NoWowUp`, `-NoCurseForge`,

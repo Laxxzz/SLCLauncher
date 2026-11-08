@@ -189,11 +189,13 @@ function Get-VersionSettings {
     # One version's settings: its own section of Versions, or -- for Retail in
     # a config.json from before there were versions -- the same keys at the
     # top level, which is where they used to live. A version with neither
-    # starts from the defaults, as a fresh tab in the settings window does.
+    # starts from the defaults, as a fresh tab in the settings window does:
+    # Retail with every app on, as SLCLauncher always started, and any other
+    # version with nothing on, so installing it starts nothing unasked.
     param($FromFile, [string]$Key)
 
     $v = @{ CustomApps = @(); QuitWithWow = $false }
-    foreach ($k in $script:BuiltInKeys) { $v[$k] = $true }
+    foreach ($k in $script:BuiltInKeys) { $v[$k] = ($Key -eq 'Retail') }
 
     $source = $null
     if ($FromFile) {

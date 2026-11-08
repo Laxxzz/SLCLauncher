@@ -489,7 +489,9 @@ function New-VersionPanel {
 
     for ($i = 0; $i -lt $builtIns.Count; $i++) {
         $b = $builtIns[$i]
-        $box = New-Check $b.Label (ConvertTo-Bool (Get-VersionSetting $Version $b.Key $true))
+        # Defaults as the watcher's: Retail starts everything, a version new
+        # to SLCLauncher starts nothing until it is ticked here.
+        $box = New-Check $b.Label (ConvertTo-Bool (Get-VersionSetting $Version $b.Key ($Version -eq 'Retail')))
         $grid.Controls.Add($box, [int][math]::Floor($i / $grid.RowCount), $i % $grid.RowCount)
         $state.AppBoxes[$b.Key] = $box
     }
