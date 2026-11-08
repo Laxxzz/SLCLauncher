@@ -46,6 +46,7 @@ namespace SLCLauncher.Theme
         public static readonly Color Accent        = Hex(0x478CEB);
         public static readonly Color AccentHover   = Hex(0x5A99EE);
         public static readonly Color AccentDim     = Hex(0x3162A7); // pressed accent
+        public static readonly Color ScrollThumb   = Hex(0x31363A); // white 14% over a card
         public static readonly Color Bad           = Hex(0xE57373);
         public static readonly Color Notice        = Hex(0xF0A030); // "update available"
     }
@@ -211,6 +212,185 @@ namespace SLCLauncher.Theme
             }
             TextRenderer.DrawText(g, Text, Font, r, live ? ForeColor : Palette.TextFaint,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
+    }
+
+    // SLC's scrollbar (S.ScrollBar in Style.lua): no track, no arrows, just a
+    // 6px thumb 36px tall in white at 14%, the dim accent while the pointer is
+    // on it. Hidden whenever there is nothing to scroll. Drag the thumb, or
+    // click above or below it to bring it there.
+    public class SlimScrollBar : Control
+    {
+        int maximum, value, dragOffset;
+        bool hover, dragging;
+        public event EventHandler ValueChanged;
+
+        public SlimScrollBar()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw |
+                     ControlStyles.SupportsTransparentBackColor, true);
+            BackColor = Color.Transparent;
+            Visible   = false;
+        }
+
+        int ThumbHeight { get { return Math.Min(Height, Dpi.Scale(this, 36)); } }
+
+        public int Maximum
+        {
+            get { return maximum; }
+            set
+            {
+                maximum = Math.Max(0, value);
+                Visible = maximum > 0;
+                if (this.value > maximum) Value = maximum;
+                Invalidate();
+            }
+        }
+
+        public int Value
+        {
+            get { return value; }
+            set
+            {
+                int v = Math.Max(0, Math.Min(maximum, value));
+                if (v == this.value) return;
+                this.value = v;
+                Invalidate();
+                if (ValueChanged != null) ValueChanged(this, EventArgs.Empty);
+            }
+        }
+
+        Rectangle Thumb
+        {
+            get
+            {
+                int track = Height - ThumbHeight;
+                int y = maximum > 0 ? (int)Math.Round((double)value * track / maximum) : 0;
+                return new Rectangle(0, y, Width, ThumbHeight);
+            }
+        }
+
+        void MoveThumbTo(int top)
+        {
+            int track = Height - ThumbHeight;
+            if (track <= 0) return;
+            top = Math.Max(0, Math.Min(track, top));
+            Value = (int)Math.Round((double)top * maximum / track);
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { hover = true;  Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            if (e.Button == MouseButtons.Left)
+            {
+                if (!Thumb.Contains(e.Location)) MoveThumbTo(e.Y - ThumbHeight / 2);
+                dragging   = true;
+                dragOffset = e.Y - Thumb.Y;
+                Capture    = true;
+                Invalidate();
+            }
+            base.OnMouseDown(e);
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            if (dragging) MoveThumbTo(e.Y - dragOffset);
+            base.OnMouseMove(e);
+        }
+
+        protected override void OnMouseUp(MouseEventArgs e)
+        {
+            dragging = false;
+            Capture  = false;
+            Invalidate();
+            base.OnMouseUp(e);
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.Clear(Surface.Behind(this));
+            using (var b = new SolidBrush(hover || dragging ? Palette.AccentDim : Palette.ScrollThumb))
+                e.Graphics.FillRectangle(b, Thumb);
+        }
+    }
+
+    // A window onto taller content, with SLC's scrollbar beside it (as
+    // S.ScrollRegion): the content scrolls, whatever heads it stays outside.
+    // The wheel moves two Steps a notch, and tabbing to a control out of view
+    // brings it into view.
+    public class ScrollView : Panel
+    {
+        readonly Panel viewport;
+        readonly SlimScrollBar bar;
+        Control content;
+
+        public int Step { get; set; }
+
+        public ScrollView()
+        {
+            DoubleBuffered = true;
+            BackColor = Color.Transparent;
+            viewport  = new Panel { BackColor = Color.Transparent, Margin = Padding.Empty };
+            bar       = new SlimScrollBar();
+            Controls.Add(viewport);
+            Controls.Add(bar);
+            bar.ValueChanged += delegate { if (content != null) content.Top = -bar.Value; };
+        }
+
+        public void SetContent(Control c)
+        {
+            content = c;
+            c.Location = Point.Empty;
+            viewport.Controls.Add(c);
+            Watch(c);
+            c.SizeChanged += delegate { Reconcile(); };
+            Reconcile();
+        }
+
+        void Watch(Control c)
+        {
+            foreach (Control k in c.Controls)
+            {
+                k.Enter += delegate(object s, EventArgs e) { ScrollIntoView((Control)s); };
+                Watch(k);
+            }
+        }
+
+        public void ScrollIntoView(Control k)
+        {
+            if (content == null) return;
+            int top = content.PointToClient(k.PointToScreen(Point.Empty)).Y;
+            if (top < bar.Value) bar.Value = top;
+            else if (top + k.Height > bar.Value + viewport.Height) bar.Value = top + k.Height - viewport.Height;
+        }
+
+        protected override void OnLayout(LayoutEventArgs e)
+        {
+            base.OnLayout(e);
+            int w = Dpi.Scale(this, 6), gap = Dpi.Scale(this, 3);
+            bar.SetBounds(Width - w, 0, w, Height);
+            viewport.SetBounds(0, 0, Math.Max(0, Width - w - gap), Height);
+            Reconcile();
+        }
+
+        void Reconcile()
+        {
+            if (content == null) return;
+            bar.Maximum = Math.Max(0, content.Height - viewport.Height);
+            content.Top = -bar.Value;
+        }
+
+        protected override void OnMouseWheel(MouseEventArgs e)
+        {
+            int step = Step > 0 ? Step : Dpi.Scale(this, 32);
+            // A wheel notch is 120; a touchpad sends smaller amounts more often.
+            bar.Value = bar.Value - (int)Math.Round(e.Delta * step * 2 / 120.0);
+            var h = e as HandledMouseEventArgs;
+            if (h != null) h.Handled = true;
+            base.OnMouseWheel(e);
         }
     }
 

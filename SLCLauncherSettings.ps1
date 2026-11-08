@@ -230,6 +230,8 @@ $trayX     = (S 359) - [int]($trayColW / 2)   # the Tray column, centred 359 in 
 $appsIndent = [math]::Max(0, [int](((& $measureText 'Apps' $fontColHead) - $checkBoxW) / 2) + 1)
 $removeW    = S 16                # the same size as a checkbox's box
 $customRowH = S 52                # a program of your own: its name, and its path beneath
+$appRowH     = S 28               # one app in the scrolling list
+$visibleRows = 4                  # how many of them show at once
 $innerNeed = @(
     ($trayX + $trayColW),
     (& $measureCheck 'Close them all when Anniversary closes'),
@@ -563,18 +565,34 @@ function New-VersionPanel {
     $apps = Add-Section 'Start with World of Warcraft' $panel
 
     # One column of apps, each with its Tray box beside it, under an Apps and
-    # a Tray heading that take a row of their own.
-    $grid = New-Object System.Windows.Forms.TableLayoutPanel
-    $grid.ColumnCount  = 2
-    $grid.RowCount     = $builtIns.Count + 1
-    $grid.AutoSize     = $true
-    $grid.AutoSizeMode = 'GrowAndShrink'
-    $grid.BackColor    = [System.Drawing.Color]::Transparent
-    $grid.Margin       = New-Object System.Windows.Forms.Padding(0)
-    foreach ($w in @($trayX, $trayColW)) {
-        $null = $grid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle('Absolute', $w)))
+    # a Tray heading. The headings stay put; the apps scroll beneath them,
+    # $visibleRows at a time, with SLC's scrollbar.
+    $newColumns = {
+        param([int]$Rows)
+        $g = New-Object System.Windows.Forms.TableLayoutPanel
+        $g.ColumnCount  = 2
+        $g.RowCount     = $Rows
+        $g.AutoSize     = $true
+        $g.AutoSizeMode = 'GrowAndShrink'
+        $g.BackColor    = [System.Drawing.Color]::Transparent
+        $g.Margin       = New-Object System.Windows.Forms.Padding(0)
+        foreach ($w in @($trayX, $trayColW)) {
+            $null = $g.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle('Absolute', $w)))
+        }
+        $g
     }
+    $grid = & $newColumns 1
     $apps.Controls.Add($grid)
+
+    $list = & $newColumns $builtIns.Count
+    for ($i = 0; $i -lt $builtIns.Count; $i++) {
+        $null = $list.RowStyles.Add((New-Object System.Windows.Forms.RowStyle('Absolute', $appRowH)))
+    }
+    $scroller = New-Object SLCLauncher.Theme.ScrollView
+    $scroller.Size   = New-Object System.Drawing.Size($innerW, ($visibleRows * $appRowH))
+    $scroller.Margin = New-Object System.Windows.Forms.Padding(0)
+    $scroller.Step   = $appRowH
+    $apps.Controls.Add($scroller)
 
     # Each heading centred over the boxes below it, with a line's worth of
     # space between it and the first of them.
@@ -599,14 +617,19 @@ function New-VersionPanel {
         # Defaults as the watcher's: Retail starts everything, a version new
         # to SLCLauncher starts nothing until it is ticked here.
         $box = New-Check $b.Label (ConvertTo-Bool (Get-VersionSetting $Version $b.Key ($Version -eq 'Retail')))
-        $box.Margin = New-Object System.Windows.Forms.Padding($appsIndent, 0, 0, (S 2))
-        $grid.Controls.Add($box, 0, $i + 1)
+        $box.Margin = New-Object System.Windows.Forms.Padding($appsIndent, 0, 0, 0)
+        $box.Anchor = 'Left'                 # centred on its row's height
+        $list.Controls.Add($box, 0, $i)
         $state.AppBoxes[$b.Key] = $box
         $tray = New-TrayCheck $box ($trayApps -contains $b.Key) $b.Label
         $tray.Anchor = 'None'                # centred in its column, under the heading
-        $grid.Controls.Add($tray, 1, $i + 1)
+        $list.Controls.Add($tray, 1, $i)
         $state.TrayBoxes[$b.Key] = $tray
     }
+    # Its size settled before it goes in, so the scrollbar knows the range.
+    $list.PerformLayout()
+    $list.Size = $list.GetPreferredSize([System.Drawing.Size]::Empty)
+    $scroller.SetContent($list)
     $apps.Controls.Add((New-Hint ("Started when $Version starts. Anything ticked that is not installed is skipped. " +
         'Tray closes the app''s window as soon as it opens, so it waits in the tray instead of covering ' +
         'your screen; an app with no tray icon is started again and left open.')))
