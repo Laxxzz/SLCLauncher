@@ -116,6 +116,14 @@ Your own programs are closed only if SLCLauncher started them for that game.
 Set `QuitGraceSeconds` to `0` to only ever ask. A forced stop can interrupt an
 addon manager halfway through an update.
 
+## Starting them in the tray
+
+With **Start them in the system tray** ticked, each app SLCLauncher starts has
+its window closed, as **X** would, the moment it appears, so the apps wait in
+the tray instead of covering the screen. Apps that were already open are left
+alone. An app with no tray icon quits when closed; it is started again, left
+open, and not closed again until the watcher restarts.
+
 ## Updates
 
 The top right of the settings window says **Up to date** or, in orange,
@@ -148,6 +156,7 @@ it within a second of a save. Keys the settings window doesn't show are kept.
 | `PollSeconds` | `1` | Seconds between checks. |
 | `LaunchDelaySeconds` | `3` | Wait after spotting the game. |
 | `QuitGraceSeconds` | `5` | Time to close before being stopped. |
+| `StartInTray` | `false` | Close each started app's window to the tray as it opens. |
 | `CheckForUpdates` | `true` | Check GitHub for a new version once a day. |
 
 A `config.json` from before versions, with those keys at the top level, is read

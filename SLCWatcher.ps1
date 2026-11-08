@@ -233,6 +233,7 @@ function Read-Config {
         GuildsOfWowExe       = ''
         TSMExe               = ''
         CheckForUpdates      = $true
+        StartInTray          = $false
         GamePattern          = '^Wow(Classic|T|B)?$'
         PollSeconds          = 1
         LaunchDelaySeconds   = 3
@@ -286,6 +287,7 @@ function Read-Config {
     if ($c.QuitGraceSeconds   -lt 0) { $c.QuitGraceSeconds   = 0 }
 
     $c.CheckForUpdates = ConvertTo-Bool $c.CheckForUpdates
+    $c.StartInTray     = ConvertTo-Bool $c.StartInTray
 
     foreach ($v in $c.Versions.Values) {
         foreach ($k in $script:BuiltInKeys + 'QuitWithWow') { $v[$k] = ConvertTo-Bool $v[$k] }
@@ -773,8 +775,139 @@ function Test-NameMatch {
     return $false
 }
 
-function Start-Companion {
+# ---------------------------------------------------------- start in tray --
+# With StartInTray on, each app this watcher starts has its window closed as
+# soon as it appears, so a game launch does not bury the desktop under five
+# windows. Closing means what the X button sends, which an app with a tray
+# icon reads as "go to the tray". Hiding the window behind the app's back
+# would be quicker, but an app with no tray icon would then be left running
+# with no way back to it.
+#
+# An app that has no tray quits instead. It is started again and left open,
+# and is not closed again until the watcher restarts.
+#
+# A window is watched for from launch until TrayWatchSeconds have passed, or
+# until TrayQuietSeconds after the last one closed: an app that opens a
+# splash screen and then its main window has both closed, and one opened by
+# hand from the tray a little later is left alone.
+$script:TrayWatches      = New-Object System.Collections.ArrayList
+$script:NoTray           = @{}
+$script:TrayNative       = $null    # $null not tried yet, $false unavailable
+$script:TrayWatchSeconds = 45
+$script:TrayQuietSeconds = 5
+
+function Initialize-TrayNative {
+    if ($null -ne $script:TrayNative) { return $script:TrayNative }
+    try {
+        Add-Type -ErrorAction Stop -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+namespace SLCLauncher {
+    public static class TrayWindows {
+        delegate bool EnumProc(IntPtr hwnd, IntPtr lParam);
+        [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc cb, IntPtr lParam);
+        [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+        [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+        [DllImport("user32.dll")] static extern IntPtr GetWindow(IntPtr hwnd, uint cmd);
+        [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr hwnd);
+        [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
+        [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
+
+        // The windows that would show on the taskbar: visible, titled, owned
+        // by no other window and not a tool window.
+        public static long[] Find(int[] pids) {
+            var want = new HashSet<uint>();
+            foreach (int p in pids) want.Add((uint)p);
+            var found = new List<long>();
+            EnumWindows(delegate (IntPtr h, IntPtr l) {
+                uint pid;
+                GetWindowThreadProcessId(h, out pid);
+                if (!want.Contains(pid) || !IsWindowVisible(h)) return true;
+                if (GetWindow(h, 4) != IntPtr.Zero) return true;            // GW_OWNER
+                int ex = GetWindowLong(h, -20);                              // GWL_EXSTYLE
+                bool tool = (ex & 0x80) != 0, app = (ex & 0x40000) != 0;     // TOOLWINDOW, APPWINDOW
+                if (tool && !app) return true;
+                if (GetWindowTextLength(h) == 0) return true;
+                found.Add(h.ToInt64());
+                return true;
+            }, IntPtr.Zero);
+            return found.ToArray();
+        }
+
+        // What clicking X sends. A plain WM_CLOSE would do for most apps, but
+        // some -- WinForms ones among them -- only treat the system command as
+        // the user closing the window, and quit outright on anything else.
+        public static void Close(long hwnd) {
+            PostMessage(new IntPtr(hwnd), 0x0112, new IntPtr(0xF060), IntPtr.Zero); // WM_SYSCOMMAND, SC_CLOSE
+        }
+    }
+}
+'@
+        $script:TrayNative = $true
+    } catch {
+        Write-Log "start in tray unavailable - apps will open normally: $_"
+        $script:TrayNative = $false
+    }
+    return $script:TrayNative
+}
+
+function Add-TrayWatch {
     param([hashtable]$App)
+    if (-not (Initialize-TrayNative)) { return }
+    $now = Get-Date
+    $null = $script:TrayWatches.Add(@{
+        App       = $App
+        Deadline  = $now.AddSeconds($script:TrayWatchSeconds)
+        QuietAt   = $null      # set by the first close
+        Closed    = @{}
+        GoneSince = $null
+    })
+}
+
+function Invoke-TrayTick {
+    # One pass over every app still being watched: close any new window, and
+    # notice an app that quit rather than going to the tray.
+    if ($script:TrayWatches.Count -eq 0) { return }
+    $procs = @(Get-Process -ErrorAction SilentlyContinue)
+    $now   = Get-Date
+    foreach ($w in @($script:TrayWatches)) {
+        $app  = $w.App
+        $pids = [int[]]@($procs | Where-Object { $_.ProcessName -match $app.Pattern } | ForEach-Object { $_.Id })
+
+        if ($w.Closed.Count -gt 0) {
+            if ($pids.Count -gt 0) { $w.GoneSince = $null }
+            elseif (-not $w.GoneSince) { $w.GoneSince = $now }
+            elseif (($now - $w.GoneSince).TotalSeconds -ge 2) {
+                # Two seconds gone, so not an app restarting itself to update.
+                $script:TrayWatches.Remove($w)
+                $script:NoTray[$app.Key] = $true
+                Write-Log "$($app.Name) quit when its window was closed - it has no tray; starting it again and leaving it open"
+                Start-Companion $app -LeaveOpen
+                continue
+            }
+        }
+
+        if ($pids.Count -gt 0) {
+            foreach ($h in [SLCLauncher.TrayWindows]::Find($pids)) {
+                if ($w.Closed.ContainsKey($h)) { continue }
+                $w.Closed[$h] = $true
+                [SLCLauncher.TrayWindows]::Close($h)
+                $w.QuietAt = $now.AddSeconds($script:TrayQuietSeconds)
+                Write-Log "$($app.Name): closed its window to the tray"
+            }
+        }
+
+        $done = ($now -ge $w.Deadline) -or ($w.QuietAt -and $now -ge $w.QuietAt -and -not $w.GoneSince)
+        if ($done) {
+            if ($w.Closed.Count -eq 0) { Write-Log "$($app.Name): no window appeared to close" }
+            $script:TrayWatches.Remove($w)
+        }
+    }
+}
+
+function Start-Companion {
+    param([hashtable]$App, [switch]$LeaveOpen)
 
     # An update can relocate the executable long after we resolved it at
     # startup, so re-resolve rather than launching a path that is no longer there.
@@ -801,6 +934,9 @@ function Start-Companion {
         }
         $App.LaunchedByUs = $true
         Write-Log "launched $($App.Exe)"
+        if ($cfg.StartInTray -and -not $LeaveOpen -and -not $script:NoTray[$App.Key]) {
+            Add-TrayWatch $App
+        }
     } catch {
         Write-Log "$($App.Name) launch FAILED: $_"
     }
@@ -941,6 +1077,7 @@ function Write-Settings {
     }
     Write-Log "watching  : $($cfg.GamePattern)  every $($cfg.PollSeconds)s"
     Write-Log "delay     : $($cfg.LaunchDelaySeconds)s after the game is spotted"
+    if ($cfg.StartInTray) { Write-Log 'windows   : closed to the tray as the apps start' }
     if ($cfg.QuitGraceSeconds -gt 0) {
         Write-Log "quit-with-wow: stopping anything still up after $($cfg.QuitGraceSeconds)s"
     } else {
@@ -1207,7 +1344,18 @@ if ($knownGames.Count -gt 0) {
 }
 
 while ($true) {
-    Start-Sleep -Seconds $cfg.PollSeconds
+    # While an app's window is awaited, look for it four times a second, so it
+    # is gone almost as soon as it is drawn; otherwise just sleep.
+    $wake = (Get-Date).AddSeconds($cfg.PollSeconds)
+    do {
+        if ($script:TrayWatches.Count -gt 0) {
+            Start-Sleep -Milliseconds 250
+            try { Invoke-TrayTick } catch { Write-Log "start in tray failed: $_"; $script:TrayWatches.Clear() }
+        } else {
+            $left = [int]($wake - (Get-Date)).TotalMilliseconds
+            if ($left -gt 0) { Start-Sleep -Milliseconds $left }
+        }
+    } while ((Get-Date) -lt $wake)
 
     $stamp = Get-ConfigStamp
     if ($stamp -ne $script:ConfigStamp) { Update-Settings $stamp }

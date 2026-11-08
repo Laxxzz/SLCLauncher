@@ -627,6 +627,13 @@ function Select-Version {
 Update-VersionsHeight
 Select-Version $versionStates[0].Key
 
+# ------------------------------------------------------------ start in tray --
+$windows = Add-Section 'When the apps start'
+$trayBox = New-Check 'Start them in the system tray' (ConvertTo-Bool (Get-Setting 'StartInTray' $false))
+$windows.Controls.Add($trayBox)
+$windows.Controls.Add((New-Hint ('Each app SLCLauncher starts has its window closed as soon as it opens, so it ' +
+    'waits in the tray instead of covering your screen. An app with no tray icon is started again and left open.')))
+
 # ----------------------------------------------------------------- updates --
 $updates = Add-Section 'Updates'
 $updateBox = New-Check 'Check for a new version once a day' (ConvertTo-Bool (Get-Setting 'CheckForUpdates' $true))
@@ -685,6 +692,7 @@ function Set-Setting {
 
 $saveButton.Add_Click({
     Set-Setting 'CheckForUpdates' $updateBox.Checked
+    Set-Setting 'StartInTray'     $trayBox.Checked
 
     # Versions not installed here keep whatever was saved for them.
     $versions = [ordered]@{}
