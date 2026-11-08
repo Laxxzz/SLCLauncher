@@ -228,17 +228,29 @@ if ($fromSrc) {
     Write-Host "  applied -> settings from $srcCfg"
 }
 
-if ($QuitWithWow)      { Set-Setting 'QuitWithWow'          $true }
-if ($NoWowUp)          { Set-Setting 'LaunchWowUp'          $false }
-if ($NoArchon)         { Set-Setting 'LaunchArchon'         $false }
-if ($NoCurseForge)     { Set-Setting 'LaunchCurseForge'     $false }
-if ($NoRaiderIO)       { Set-Setting 'LaunchRaiderIO'       $false }
-if ($NoWowUtilsBridge) { Set-Setting 'LaunchWowUtilsBridge' $false }
-if ($NoWowAudit)       { Set-Setting 'LaunchWowAudit'       $false }
-if ($NoGuildsOfWow)    { Set-Setting 'LaunchGuildsOfWow'    $false }
-if ($NoTSM)            { Set-Setting 'LaunchTSM'            $false }
+# Each version of the game has its settings under Versions; a config.json from
+# before versions has them at the top level, where the watcher reads them as
+# Retail's. The switches apply to every version, wherever its settings are.
+$switches = [ordered]@{
+    QuitWithWow = $QuitWithWow; LaunchWowUp = $NoWowUp; LaunchArchon = $NoArchon
+    LaunchCurseForge = $NoCurseForge; LaunchRaiderIO = $NoRaiderIO
+    LaunchWowUtilsBridge = $NoWowUtilsBridge; LaunchWowAudit = $NoWowAudit
+    LaunchGuildsOfWow = $NoGuildsOfWow; LaunchTSM = $NoTSM
+}
+$targets = @($config)
+$versionsProp = $config.PSObject.Properties['Versions']
+if ($versionsProp -and $versionsProp.Value) {
+    $targets = @($versionsProp.Value.PSObject.Properties | ForEach-Object { $_.Value })
+}
+foreach ($t in $targets) {
+    foreach ($k in $switches.Keys) {
+        if ($switches[$k]) {
+            $t | Add-Member -NotePropertyName $k -NotePropertyValue ($k -eq 'QuitWithWow') -Force
+        }
+    }
+}
 
-[System.IO.File]::WriteAllText($cfgTarget, (ConvertTo-Json -InputObject $config -Depth 5),
+[System.IO.File]::WriteAllText($cfgTarget, (ConvertTo-Json -InputObject $config -Depth 8),
                                (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "  config  -> $cfgTarget"
 
@@ -252,28 +264,37 @@ function Test-On {
     return (@('1', 'true', 'yes', 'on') -contains "$Value".Trim().ToLowerInvariant())
 }
 
-$chosen = @()
-foreach ($a in @(@('Archon', 'LaunchArchon'), @('WowUp', 'LaunchWowUp'),
-                 @('CurseForge', 'LaunchCurseForge'), @('Raider.IO', 'LaunchRaiderIO'),
-                 @('WowUtils Bridge', 'LaunchWowUtilsBridge'), @('wowaudit', 'LaunchWowAudit'),
-                 @('Guilds of WoW', 'LaunchGuildsOfWow'), @('TSM', 'LaunchTSM'))) {
-    if (Test-On $config.($a[1]) $true) { $chosen += $a[0] }
-}
-$ownCount = @($config.CustomApps | Where-Object {
-    $_ -and "$($_.Path)".Trim() -and (Test-On $_.Enabled $true)
-}).Count
-if ($ownCount -eq 1)     { $chosen += '1 program of your own' }
-elseif ($ownCount -gt 1) { $chosen += "$ownCount programs of your own" }
-
-if ($chosen.Count -eq 0) {
-    $line = 'nothing yet - choose in SLCLauncher'
-} elseif ($chosen.Count -eq 1) {
-    $line = "$($chosen[0]), if installed"
+$reports = [ordered]@{}
+if ($versionsProp -and $versionsProp.Value) {
+    foreach ($p in $versionsProp.Value.PSObject.Properties) { $reports[$p.Name] = $p.Value }
 } else {
-    $line = ($chosen[0..($chosen.Count - 2)] -join ', ') + " and $($chosen[-1]), if installed"
+    $reports['Retail'] = $config
 }
-Write-Host "  starts  -> $line"
-if (Test-On $config.QuitWithWow $false) { Write-Host '  closes  -> all of them when WoW closes' }
+foreach ($version in $reports.Keys) {
+    $v = $reports[$version]
+    $chosen = @()
+    foreach ($a in @(@('Archon', 'LaunchArchon'), @('WowUp', 'LaunchWowUp'),
+                     @('CurseForge', 'LaunchCurseForge'), @('Raider.IO', 'LaunchRaiderIO'),
+                     @('WowUtils Bridge', 'LaunchWowUtilsBridge'), @('wowaudit', 'LaunchWowAudit'),
+                     @('Guilds of WoW', 'LaunchGuildsOfWow'), @('TSM', 'LaunchTSM'))) {
+        if (Test-On $v.($a[1]) $true) { $chosen += $a[0] }
+    }
+    $ownCount = @($v.CustomApps | Where-Object {
+        $_ -and "$($_.Path)".Trim() -and (Test-On $_.Enabled $true)
+    }).Count
+    if ($ownCount -eq 1)     { $chosen += '1 program of your own' }
+    elseif ($ownCount -gt 1) { $chosen += "$ownCount programs of your own" }
+
+    if ($chosen.Count -eq 0) {
+        $line = 'nothing yet - choose in SLCLauncher'
+    } elseif ($chosen.Count -eq 1) {
+        $line = "$($chosen[0]), if installed"
+    } else {
+        $line = ($chosen[0..($chosen.Count - 2)] -join ', ') + " and $($chosen[-1]), if installed"
+    }
+    Write-Host "  $version starts -> $line"
+    if (Test-On $v.QuitWithWow $false) { Write-Host "  $version closes -> all of them when it closes" }
+}
 
 # -------------------------------------------------------- register the task --
 # Launch through the VBS shim rather than powershell.exe directly: Task
