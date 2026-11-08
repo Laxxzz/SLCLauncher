@@ -228,7 +228,7 @@ $trayX     = (S 359) - [int]($trayColW / 2)   # the Tray column, centred 359 in 
 # The apps sit a little in from the card's edge, so the Apps heading can be
 # centred over their boxes without running off the card.
 $appsIndent = [math]::Max(0, [int](((& $measureText 'Apps' $fontColHead) - $checkBoxW) / 2) + 1)
-$removeW    = S 22
+$removeW    = S 16                # the same size as a checkbox's box
 $customRowH = S 52                # a program of your own: its name, and its path beneath
 $innerNeed = @(
     ($trayX + $trayColW),
@@ -523,10 +523,12 @@ function Add-CustomRow {
 
     $remove = New-Object SLCLauncher.Theme.ThemedButton
     $remove.Text     = [string][char]0x00D7   # a multiplication sign; Segoe UI has it, so no emoji fallback
-    $remove.Font     = New-Object System.Drawing.Font('Segoe UI', 11)
+    $remove.Font     = New-Object System.Drawing.Font('Segoe UI', 8)
     $remove.AutoSize = $false
     $remove.Size     = New-Object System.Drawing.Size($removeW, $removeW)
-    $remove.Location = New-Object System.Drawing.Point(($trayCentre - [int]($removeW / 2)), (S 28))
+    # Centred on the path's line.
+    $remove.Location = New-Object System.Drawing.Point(($trayCentre - [int]($removeW / 2)),
+                                                       ($pathLabel.Top + [int](($pathLabel.Height - $removeW) / 2)))
     $tips.SetToolTip($remove, "Remove $Name")
     $row.Controls.Add($remove)
 
