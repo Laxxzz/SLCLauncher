@@ -66,6 +66,19 @@ Open **SLCLauncher** from the Start menu. Tick the apps to start, add your own
 programs, and choose whether they close with WoW. **Save** takes effect from the
 next game launch. You never need to reinstall or restart anything.
 
+### One tab per game version
+
+The header has a tab for each version of WoW installed on your PC: **Retail**,
+**Forever**, **MoP** and **Anniversary**. Each tab has its own apps, programs and
+**When WoW closes** setting, so Anniversary can start TSM without Retail doing the
+same. **Updates** is shared by all of them.
+
+A version is found by its folder under your World of Warcraft folder
+(`_retail_`, `_forever_`, `_classic_`, `_anniversary_`) with the game in it. Test
+realms count as the version they test. Classic Era has no tab, and nothing is
+started for it. An app two running versions both use is started once, and is
+left open while either is still running.
+
 ## Supported apps
 
 | App | Notes |
@@ -126,17 +139,20 @@ it within a second of a save. Keys the settings window doesn't show are kept.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `LaunchArchon` … `LaunchTSM` | `true` | Start that app with the game. |
-| `CustomApps` | none | Your own programs: `Name`, `Path`, `Enabled`. |
+| `Versions` | defaults | One object per version (`Retail`, `Forever`, `MoP`, `Anniversary`) holding the three keys below. |
+| ↳ `LaunchArchon` … `LaunchTSM` | `true` | Start that app with this version. |
+| ↳ `CustomApps` | none | Your own programs: `Name`, `Path`, `Enabled`. |
+| ↳ `QuitWithWow` | `false` | Close the apps when this version exits. |
 | `ArchonExe` … `TSMExe` | auto | Full path, only if auto-detection misses the app. |
 | `GamePattern` | `^Wow(Classic\|T\|B)?$` | Regex for the game's process name. |
 | `PollSeconds` | `1` | Seconds between checks. |
 | `LaunchDelaySeconds` | `3` | Wait after spotting the game. |
-| `QuitWithWow` | `false` | Close the apps when the game exits. |
 | `QuitGraceSeconds` | `5` | Time to close before being stopped. |
 | `CheckForUpdates` | `true` | Check GitHub for a new version once a day. |
 
-An invalid save is logged and ignored. `config.example.json` lists every key. A
+A `config.json` from before versions, with those keys at the top level, is read
+as Retail's settings and moved into `Versions` the next time you save. A version
+with no settings of its own uses the defaults. An invalid save is logged and ignored. `config.example.json` lists every key. A
 `config.json` placed next to `Install.cmd` is applied on each install.
 
 `Install.ps1` also takes `-NoArchon`, `-NoWowUp`, `-NoCurseForge`,

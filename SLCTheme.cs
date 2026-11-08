@@ -233,6 +233,62 @@ namespace SLCLauncher.Theme
         }
     }
 
+    // One tab in the header's strip of game versions: its name, muted at rest,
+    // white on hover, and white over a bar of the accent when it is the one
+    // shown. The bar sits on the header's bottom rule, as a tab's edge would.
+    // Transparent, so the header's gradient shows behind it.
+    public class TabButton : Control
+    {
+        bool hover, selected;
+
+        public bool Selected
+        {
+            get { return selected; }
+            set { selected = value; Invalidate(); }
+        }
+
+        public TabButton()
+        {
+            SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw |
+                     ControlStyles.SupportsTransparentBackColor, true);
+            SetStyle(ControlStyles.Selectable, false);
+            BackColor = Color.Transparent;
+            ForeColor = Palette.Text;
+            Cursor    = Cursors.Hand;
+        }
+
+        public override Size GetPreferredSize(Size proposed)
+        {
+            var t = TextRenderer.MeasureText(Text, Font, Size.Empty, TextFormatFlags.NoPadding);
+            return new Size(t.Width + Dpi.Scale(this, 28), t.Height + Dpi.Scale(this, 18));
+        }
+
+        protected override void OnTextChanged(EventArgs e) { Invalidate(); base.OnTextChanged(e); }
+        protected override void OnMouseEnter(EventArgs e) { hover = true;  Invalidate(); base.OnMouseEnter(e); }
+        protected override void OnMouseLeave(EventArgs e) { hover = false; Invalidate(); base.OnMouseLeave(e); }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            if (selected)
+            {
+                using (var b = new SolidBrush(Color.FromArgb(18, Palette.Accent)))
+                    g.FillRectangle(b, 0, 0, Width, Height);
+                using (var b = new SolidBrush(Palette.Accent))
+                    g.FillRectangle(b, 0, Height - Dpi.Scale(this, 2), Width, Dpi.Scale(this, 2));
+            }
+            else if (hover)
+            {
+                using (var b = new SolidBrush(Color.FromArgb(10, Color.White)))
+                    g.FillRectangle(b, 0, 0, Width, Height);
+            }
+            Color ink = selected || hover ? Palette.Text : Palette.TextMuted;
+            TextRenderer.DrawText(g, Text, Font, new Rectangle(0, 0, Width, Height - Dpi.Scale(this, 2)), ink,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        }
+    }
+
     // The footer: the band colour, with a rule over it.
     public class FooterBand : Panel
     {

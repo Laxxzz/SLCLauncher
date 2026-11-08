@@ -104,6 +104,81 @@ $builtIns = @(
     @{ Key = 'LaunchTSM';            Label = 'TSM Desktop App' }
 )
 
+# The versions of the game, each with a tab of its own settings. The same
+# table as the watcher's: a version is told apart by the folder under the
+# World of Warcraft folder that its executable is in.
+$gameVersions = @(
+    @{ Key = 'Retail';      Folders = @('_retail_', '_ptr_', '_xptr_', '_beta_') },
+    @{ Key = 'Forever';     Folders = @('_forever_') },
+    @{ Key = 'MoP';         Folders = @('_classic_', '_classic_ptr_', '_classic_beta_') },
+    @{ Key = 'Anniversary'; Folders = @('_anniversary_') }
+)
+
+# What each version's tab holds. Saved under Versions in config.json; the
+# rest of config.json is shared.
+$versionKeys = @($builtIns | ForEach-Object { $_.Key }) + 'QuitWithWow', 'CustomApps'
+
+function Find-InstalledVersions {
+    # The versions installed on this PC: a version's folder with a game in it,
+    # under any World of Warcraft folder the Battle.net app has recorded. A
+    # folder left behind empty by an uninstall does not count.
+    $roots = @()
+    foreach ($hive in 'HKLM:\SOFTWARE\WOW6432Node', 'HKLM:\SOFTWARE') {
+        Get-ItemProperty "$hive\Microsoft\Windows\CurrentVersion\Uninstall\*" -ErrorAction SilentlyContinue |
+            Where-Object { "$($_.UninstallString)" -match '--uid=wow' -and $_.InstallLocation } |
+            ForEach-Object { $roots += "$($_.InstallLocation)" }
+        $blizzard = Get-ItemProperty "$hive\Blizzard Entertainment\World of Warcraft" -ErrorAction SilentlyContinue
+        if ($blizzard -and $blizzard.InstallPath) { $roots += Split-Path "$($blizzard.InstallPath)".TrimEnd('\') -Parent }
+    }
+    foreach ($pf in ${env:ProgramFiles(x86)}, $env:ProgramFiles) {
+        if ($pf) { $roots += Join-Path $pf 'World of Warcraft' }
+    }
+    $roots = @($roots | ForEach-Object { $_.TrimEnd('\') } | Sort-Object -Unique)
+
+    $found = @()
+    foreach ($gv in $gameVersions) {
+        :version foreach ($root in $roots) {
+            foreach ($folder in $gv.Folders) {
+                $dir = Join-Path $root $folder
+                if ((Test-Path -LiteralPath $dir) -and
+                    (Get-ChildItem -LiteralPath $dir -Filter 'Wow*.exe' -File -ErrorAction SilentlyContinue)) {
+                    $found += $gv.Key
+                    break version
+                }
+            }
+        }
+    }
+    return $found
+}
+
+$shownVersions = @(Find-InstalledVersions)
+# Nothing found -- the game installed somewhere unusual -- still leaves the
+# settings for the version most people play.
+if ($shownVersions.Count -eq 0) { $shownVersions = @('Retail') }
+
+function Get-VersionSource {
+    # Where a version's settings are: its own section of Versions, or for
+    # Retail in a config.json from before there were versions, the top level.
+    # A version with neither shows the defaults, as the watcher reads it.
+    param([string]$Key)
+    $all = $config.PSObject.Properties['Versions']
+    if ($all -and $all.Value -and $all.Value.PSObject.Properties[$Key]) {
+        return $all.Value.PSObject.Properties[$Key].Value
+    }
+    if ($Key -eq 'Retail') { return $config }
+    return $null
+}
+
+function Get-VersionSetting {
+    param([string]$Version, [string]$Name, $Default)
+    $src = Get-VersionSource $Version
+    if ($src) {
+        $p = $src.PSObject.Properties[$Name]
+        if ($p -and $null -ne $p.Value -and "$($p.Value)" -ne '') { return $p.Value }
+    }
+    return $Default
+}
+
 # The installed version, from the one place it is written down.
 $currentVersion = '0.0.0'
 $vMatch = Select-String -LiteralPath (Join-Path $installDir 'SLCWatcher.ps1') `
@@ -179,10 +254,10 @@ function New-Stack {
 function Add-Section {
     # A tracked-caps heading over a card, as SLC's settings lay out a group.
     # Returns the column inside the card for the section's rows.
-    param([string]$Title)
+    param([string]$Title, $Parent = $body)
     $h = New-Label $Title.ToUpperInvariant() $fontHeading $P::TextFaint
     $h.Margin = New-Object System.Windows.Forms.Padding((S 2), (S 14), 0, (S 6))
-    $body.Controls.Add($h)
+    $Parent.Controls.Add($h)
 
     $card = New-Object SLCLauncher.Theme.Card
     $card.AutoSize     = $true
@@ -191,7 +266,7 @@ function Add-Section {
     $stack = New-Stack $cardPad
     $stack.MinimumSize = New-Object System.Drawing.Size($contentW, 0)
     $card.Controls.Add($stack)
-    $body.Controls.Add($card)
+    $Parent.Controls.Add($card)
     return $stack
 }
 
@@ -219,8 +294,9 @@ $page.BackColor = $P::Canvas
 $form.Controls.Add($page)
 
 # ------------------------------------------------------------------ header --
+$tabH   = S 36                   # the strip of version tabs along the header's foot
 $header = New-Object SLCLauncher.Theme.HeaderBand
-$header.Size   = New-Object System.Drawing.Size(($contentW + 2 * $pad), ($top + (S 72)))
+$header.Size   = New-Object System.Drawing.Size(($contentW + 2 * $pad), ($top + (S 80) + $tabH))
 $header.Margin = New-Object System.Windows.Forms.Padding(0)
 $page.Controls.Add($header)
 
@@ -294,50 +370,23 @@ $body = New-Stack
 $body.Padding = New-Object System.Windows.Forms.Padding($pad, (S 4), $pad, $pad)
 $page.Controls.Add($body)
 
-# ------------------------------------------------------- the built-in apps --
-$apps = Add-Section 'Start with World of Warcraft'
-
-# Two columns: the names are short, and one long column left most of the
-# card empty.
-$grid = New-Object System.Windows.Forms.TableLayoutPanel
-$grid.ColumnCount  = 2
-$grid.RowCount     = [math]::Ceiling($builtIns.Count / 2)
-$grid.AutoSize     = $true
-$grid.AutoSizeMode = 'GrowAndShrink'
-$grid.BackColor    = [System.Drawing.Color]::Transparent
-$grid.Margin       = New-Object System.Windows.Forms.Padding(0)
-$colW = [int]($innerW / 2)
-foreach ($i in 0..1) {
-    $null = $grid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle('Absolute', $colW)))
-}
-$apps.Controls.Add($grid)
-
-$appBoxes = @{}
-for ($i = 0; $i -lt $builtIns.Count; $i++) {
-    $b = $builtIns[$i]
-    $box = New-Check $b.Label (ConvertTo-Bool (Get-Setting $b.Key $true))
-    $grid.Controls.Add($box, [int][math]::Floor($i / $grid.RowCount), $i % $grid.RowCount)
-    $appBoxes[$b.Key] = $box
-}
-$apps.Controls.Add((New-Hint 'Anything ticked that is not installed is skipped.'))
-
-# ------------------------------------------------------ your own programs ---
-$own = Add-Section 'Your own programs'
-
-$rows = New-Stack
-$own.Controls.Add($rows)
-$empty = New-Label 'None yet. Add any program to start it with WoW.' $form.Font $P::TextMuted
-$empty.Margin = New-Object System.Windows.Forms.Padding(0, (S 2), 0, (S 6))
-$rows.Controls.Add($empty)
-
+# --------------------------------------------------------- version panels --
+# One panel per installed version, holding the three sections that differ
+# between them; only the selected tab's panel is shown. Updates, below them,
+# is the same whichever tab is open.
 $tips = New-Object System.Windows.Forms.ToolTip
 
-# One entry per program: its tick box, its path, and a button to drop it.
-# The list IS the controls -- saving reads them back -- so there is no second
-# copy of it to fall out of step.
-$customRows = New-Object System.Collections.ArrayList
+$versionsHost = New-Stack
+$body.Controls.Add($versionsHost)
 
-function Update-Empty { $empty.Visible = $customRows.Count -eq 0 }
+# Each version's controls, in one record per tab. Saving reads them back, so
+# there is no second copy of any setting to fall out of step.
+$versionStates = New-Object System.Collections.ArrayList
+
+function Update-Empty {
+    param($State)
+    $State.Empty.Visible = $State.CustomRows.Count -eq 0
+}
 
 function Get-ShortPath {
     # One line, however long the path. The folders in the middle go first,
@@ -357,7 +406,8 @@ function Get-ShortPath {
 }
 
 function Add-CustomRow {
-    param([string]$Name, [string]$Path, [bool]$Enabled)
+    # One program of a version's own: its tick box, its path, and a button to drop it.
+    param($State, [string]$Name, [string]$Path, [bool]$Enabled)
 
     $row = New-Object System.Windows.Forms.Panel
     $row.Size      = New-Object System.Drawing.Size($innerW, (S 32))
@@ -393,71 +443,155 @@ function Add-CustomRow {
     $row.Controls.Add($remove)
 
     # The entry rides on the button rather than in a closure: a closure would
-    # cut the handler off from $rows, $customRows and Update-Empty.
-    $entry = @{ Name = $Name; Path = $Path; Box = $box; Row = $row }
+    # cut the handler off from the functions it calls.
+    $entry = @{ Name = $Name; Path = $Path; Box = $box; Row = $row; State = $State }
     $remove.Tag = $entry
     $remove.Add_Click({
         param($sender)
-        $rows.Controls.Remove($sender.Tag.Row)
-        $customRows.Remove($sender.Tag)
-        Update-Empty
+        $s = $sender.Tag.State
+        $s.Rows.Controls.Remove($sender.Tag.Row)
+        $s.CustomRows.Remove($sender.Tag)
+        Update-Empty $s
     })
 
-    $rows.Controls.Add($row)
-    $null = $customRows.Add($entry)
-    Update-Empty
+    $State.Rows.Controls.Add($row)
+    $null = $State.CustomRows.Add($entry)
+    Update-Empty $State
     return $entry
 }
 
-foreach ($a in @(Get-Setting 'CustomApps' @())) {
-    if ($null -eq $a -or -not "$($a.Path)".Trim()) { continue }
-    $path = "$($a.Path)".Trim()
-    $name = "$($a.Name)".Trim()
-    if (-not $name) { $name = [System.IO.Path]::GetFileNameWithoutExtension($path) }
-    $enabled = ($null -eq $a.Enabled) -or (ConvertTo-Bool $a.Enabled)
-    $null = Add-CustomRow $name $path $enabled
-}
+function New-VersionPanel {
+    param([string]$Version)
 
-$addButton = New-Object SLCLauncher.Theme.ThemedButton
-$addButton.Text   = 'Add program...'
-$addButton.Margin = New-Object System.Windows.Forms.Padding(0, (S 8), 0, 0)
-$own.Controls.Add($addButton)
+    $panel = New-Stack
+    $panel.Visible = $false
+    $versionsHost.Controls.Add($panel)
+    $state = @{ Key = $Version; Panel = $panel; AppBoxes = @{}
+                CustomRows = (New-Object System.Collections.ArrayList) }
 
-$own.Controls.Add((New-Hint ('Ticked programs start with WoW unless they are already running. ' +
-    'Pick the program itself, not a launcher or updater that starts it.')))
+    # --------------------------------------------------- the built-in apps --
+    $apps = Add-Section 'Start with World of Warcraft' $panel
 
-$addButton.Add_Click({
-    $dialog = New-Object System.Windows.Forms.OpenFileDialog
-    $dialog.Title  = 'Choose a program to start with World of Warcraft'
-    $dialog.Filter = 'Programs (*.exe)|*.exe'
-    $dialog.InitialDirectory = $env:ProgramFiles
-    if ($dialog.ShowDialog($form) -ne 'OK') { return }
-    $path = $dialog.FileName
+    # Two columns: the names are short, and one long column left most of the
+    # card empty.
+    $grid = New-Object System.Windows.Forms.TableLayoutPanel
+    $grid.ColumnCount  = 2
+    $grid.RowCount     = [math]::Ceiling($builtIns.Count / 2)
+    $grid.AutoSize     = $true
+    $grid.AutoSizeMode = 'GrowAndShrink'
+    $grid.BackColor    = [System.Drawing.Color]::Transparent
+    $grid.Margin       = New-Object System.Windows.Forms.Padding(0)
+    $colW = [int]($innerW / 2)
+    foreach ($i in 0..1) {
+        $null = $grid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle('Absolute', $colW)))
+    }
+    $apps.Controls.Add($grid)
 
-    foreach ($existing in $customRows) {
-        if ($existing.Path -eq $path) {
-            $existing.Box.Checked = $true
-            $existing.Box.Focus()
-            return
-        }
+    for ($i = 0; $i -lt $builtIns.Count; $i++) {
+        $b = $builtIns[$i]
+        $box = New-Check $b.Label (ConvertTo-Bool (Get-VersionSetting $Version $b.Key $true))
+        $grid.Controls.Add($box, [int][math]::Floor($i / $grid.RowCount), $i % $grid.RowCount)
+        $state.AppBoxes[$b.Key] = $box
+    }
+    $apps.Controls.Add((New-Hint "Started when $Version starts. Anything ticked that is not installed is skipped."))
+
+    # -------------------------------------------------- your own programs ---
+    $own = Add-Section 'Your own programs' $panel
+
+    $state.Rows = New-Stack
+    $own.Controls.Add($state.Rows)
+    $state.Empty = New-Label "None yet. Add any program to start it with $Version." $form.Font $P::TextMuted
+    $state.Empty.Margin = New-Object System.Windows.Forms.Padding(0, (S 2), 0, (S 6))
+    $state.Rows.Controls.Add($state.Empty)
+
+    foreach ($a in @(Get-VersionSetting $Version 'CustomApps' @())) {
+        if ($null -eq $a -or -not "$($a.Path)".Trim()) { continue }
+        $path = "$($a.Path)".Trim()
+        $name = "$($a.Name)".Trim()
+        if (-not $name) { $name = [System.IO.Path]::GetFileNameWithoutExtension($path) }
+        $enabled = ($null -eq $a.Enabled) -or (ConvertTo-Bool $a.Enabled)
+        $null = Add-CustomRow $state $name $path $enabled
     }
 
-    # The name the program gives itself reads better than its file name:
-    # "Microsoft Edge" rather than "msedge".
-    $name = $null
-    try { $name = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($path).FileDescription } catch { }
-    if (-not "$name".Trim()) { $name = [System.IO.Path]::GetFileNameWithoutExtension($path) }
+    $addButton = New-Object SLCLauncher.Theme.ThemedButton
+    $addButton.Text   = 'Add program...'
+    $addButton.Margin = New-Object System.Windows.Forms.Padding(0, (S 8), 0, 0)
+    $addButton.Tag    = $state
+    $own.Controls.Add($addButton)
 
-    $null = Add-CustomRow "$name".Trim() $path $true
-})
+    $own.Controls.Add((New-Hint ('Ticked programs start with WoW unless they are already running. ' +
+        'Pick the program itself, not a launcher or updater that starts it.')))
 
-# ---------------------------------------------------------- close with WoW --
-$closing = Add-Section 'When WoW closes'
-$quitBox = New-Check 'Close them all when WoW closes' (ConvertTo-Bool (Get-Setting 'QuitWithWow' $false))
-$closing.Controls.Add($quitBox)
-$closing.Controls.Add((New-Hint ('Each app is asked to close first. Anything still running a few seconds ' +
-    'later - an app that hides in the tray instead - is stopped. Programs of your own are closed only ' +
-    'if SLCLauncher started them.')))
+    $addButton.Add_Click({
+        param($sender)
+        $s = $sender.Tag
+        $dialog = New-Object System.Windows.Forms.OpenFileDialog
+        $dialog.Title  = "Choose a program to start with $($s.Key)"
+        $dialog.Filter = 'Programs (*.exe)|*.exe'
+        $dialog.InitialDirectory = $env:ProgramFiles
+        if ($dialog.ShowDialog($form) -ne 'OK') { return }
+        $path = $dialog.FileName
+
+        foreach ($existing in $s.CustomRows) {
+            if ($existing.Path -eq $path) {
+                $existing.Box.Checked = $true
+                $existing.Box.Focus()
+                return
+            }
+        }
+
+        # The name the program gives itself reads better than its file name:
+        # "Microsoft Edge" rather than "msedge".
+        $name = $null
+        try { $name = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($path).FileDescription } catch { }
+        if (-not "$name".Trim()) { $name = [System.IO.Path]::GetFileNameWithoutExtension($path) }
+
+        $null = Add-CustomRow $s "$name".Trim() $path $true
+    })
+
+    # ------------------------------------------------------ close with WoW --
+    $closing = Add-Section 'When WoW closes' $panel
+    $state.QuitBox = New-Check "Close them all when $Version closes" `
+                               (ConvertTo-Bool (Get-VersionSetting $Version 'QuitWithWow' $false))
+    $closing.Controls.Add($state.QuitBox)
+    $closing.Controls.Add((New-Hint ('Each app is asked to close first. Anything still running a few seconds ' +
+        'later - an app that hides in the tray instead - is stopped. Apps another version still running ' +
+        'uses are left open, and programs of your own are closed only if SLCLauncher started them.')))
+
+    $null = $versionStates.Add($state)
+}
+
+foreach ($v in $shownVersions) { New-VersionPanel $v }
+
+# ------------------------------------------------------------- the tabs --
+# Along the foot of the header, one per installed version.
+$fontTab = New-Object System.Drawing.Font('Segoe UI Semibold', 9.5)
+$tabX = $pad - (S 6)
+foreach ($state in $versionStates) {
+    $tab = New-Object SLCLauncher.Theme.TabButton
+    $tab.Text = $state.Key
+    $tab.Font = $fontTab
+    $w = $tab.GetPreferredSize([System.Drawing.Size]::Empty).Width
+    $tab.Size     = New-Object System.Drawing.Size($w, ($tabH - 1))
+    $tab.Location = New-Object System.Drawing.Point($tabX, ($header.Height - $tabH))
+    $tab.Tag      = $state.Key
+    $header.Controls.Add($tab)
+    $state.Tab = $tab
+    $tabX += $w
+    $tab.Add_Click({ param($sender) Select-Version $sender.Tag })
+}
+
+function Select-Version {
+    param([string]$Key)
+    $form.SuspendLayout()
+    foreach ($s in $versionStates) {
+        $on = $s.Key -eq $Key
+        $s.Panel.Visible = $on
+        $s.Tab.Selected  = $on
+    }
+    $form.ResumeLayout($true)
+}
+Select-Version $versionStates[0].Key
 
 # ----------------------------------------------------------------- updates --
 $updates = Add-Section 'Updates'
@@ -516,23 +650,46 @@ function Set-Setting {
 }
 
 $saveButton.Add_Click({
-    foreach ($b in $builtIns) { Set-Setting $b.Key $appBoxes[$b.Key].Checked }
-    Set-Setting 'QuitWithWow' $quitBox.Checked
     Set-Setting 'CheckForUpdates' $updateBox.Checked
 
-    $custom = @()
-    foreach ($entry in $customRows) {
-        $custom += [pscustomobject][ordered]@{
-            Name    = $entry.Name
-            Path    = $entry.Path
-            Enabled = $entry.Box.Checked
-        }
+    # Versions not installed here keep whatever was saved for them.
+    $versions = [ordered]@{}
+    $saved = $config.PSObject.Properties['Versions']
+    if ($saved -and $saved.Value) {
+        foreach ($p in $saved.Value.PSObject.Properties) { $versions[$p.Name] = $p.Value }
     }
-    Set-Setting 'CustomApps' $custom
+    # Retail's settings from before there were versions, at the top level, move
+    # into its section -- even when it has no tab here, so nothing is lost.
+    if (-not $versions.Contains('Retail')) {
+        $legacy = [ordered]@{}
+        foreach ($k in $versionKeys) {
+            $p = $config.PSObject.Properties[$k]
+            if ($p) { $legacy[$k] = $p.Value }
+        }
+        if ($legacy.Count) { $versions['Retail'] = [pscustomobject]$legacy }
+    }
+    foreach ($k in $versionKeys) { $config.PSObject.Properties.Remove($k) }
+
+    foreach ($s in $versionStates) {
+        $v = [ordered]@{}
+        foreach ($b in $builtIns) { $v[$b.Key] = $s.AppBoxes[$b.Key].Checked }
+        $v.QuitWithWow = $s.QuitBox.Checked
+        $custom = @()
+        foreach ($entry in $s.CustomRows) {
+            $custom += [pscustomobject][ordered]@{
+                Name    = $entry.Name
+                Path    = $entry.Path
+                Enabled = $entry.Box.Checked
+            }
+        }
+        $v.CustomApps = $custom
+        $versions[$s.Key] = [pscustomobject]$v
+    }
+    Set-Setting 'Versions' ([pscustomobject]$versions)
 
     # Written beside the real file and then moved over it, so the watcher --
     # which rereads the file the moment it changes -- never sees half of it.
-    $json = ConvertTo-Json -InputObject $config -Depth 5
+    $json = ConvertTo-Json -InputObject $config -Depth 8
     $temp = "$configPath.saving"
     try {
         [System.IO.File]::WriteAllText($temp, $json, (New-Object System.Text.UTF8Encoding($false)))

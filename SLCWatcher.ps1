@@ -16,6 +16,11 @@
     one that is not installed is simply skipped. Any other program can be added
     by path, through the settings app or the CustomApps key.
 
+    Each version of the game -- Retail, Forever, MoP Classic, Anniversary --
+    has its own choice of apps and programs and its own quit setting, under
+    Versions in config.json, and is told apart by the folder its executable
+    runs from.
+
     This is the part that runs in the background, with no window and no tray
     icon, started at logon by the scheduled task. It is not what you open to
     change settings -- that is SLCLauncher.exe.
@@ -91,7 +96,7 @@
     Set to 0 to launch immediately.
 
 .PARAMETER QuitWithWow
-    Also close the apps when WoW exits.
+    Also close the apps when WoW exits, for every version of the game.
 
 .PARAMETER QuitGraceSeconds
     With QuitWithWow, how long to let an app close on its own before stopping
@@ -160,6 +165,55 @@ function ConvertTo-Bool {
     return (@('1', 'true', 'yes', 'on') -contains "$Value".Trim().ToLowerInvariant())
 }
 
+# ---------------------------------------------------------- game versions --
+# Each version of the game the Battle.net launcher installs has its own folder
+# under the World of Warcraft folder, and several share an executable name --
+# Retail and Forever are both Wow.exe, MoP Classic and Anniversary both
+# WowClassic.exe -- so a running game is told apart by the folder its
+# executable is in. Each version has its own apps, programs and quit setting,
+# under Versions in config.json. Test realms count as the version they test.
+# The settings window keeps the same table.
+$script:GameVersions = @(
+    @{ Key = 'Retail';      Folders = @('_retail_', '_ptr_', '_xptr_', '_beta_') },
+    @{ Key = 'Forever';     Folders = @('_forever_') },
+    @{ Key = 'MoP';         Folders = @('_classic_', '_classic_ptr_', '_classic_beta_') },
+    @{ Key = 'Anniversary'; Folders = @('_anniversary_') }
+)
+
+# The settings that differ from version to version. Everything else in
+# config.json -- where the apps are, the delays, update checks -- is shared.
+$script:BuiltInKeys = @('LaunchArchon', 'LaunchWowUp', 'LaunchCurseForge', 'LaunchRaiderIO',
+                        'LaunchWowUtilsBridge', 'LaunchWowAudit', 'LaunchGuildsOfWow', 'LaunchTSM')
+
+function Get-VersionSettings {
+    # One version's settings: its own section of Versions, or -- for Retail in
+    # a config.json from before there were versions -- the same keys at the
+    # top level, which is where they used to live. A version with neither
+    # starts from the defaults, as a fresh tab in the settings window does.
+    param($FromFile, [string]$Key)
+
+    $v = @{ CustomApps = @(); QuitWithWow = $false }
+    foreach ($k in $script:BuiltInKeys) { $v[$k] = $true }
+
+    $source = $null
+    if ($FromFile) {
+        $all = $FromFile.PSObject.Properties['Versions']
+        if ($all -and $all.Value -and $all.Value.PSObject.Properties[$Key]) {
+            $source = $all.Value.PSObject.Properties[$Key].Value
+        } elseif ($Key -eq 'Retail') {
+            $source = $FromFile
+        }
+    }
+    if ($source) {
+        foreach ($p in $source.PSObject.Properties) {
+            if ($v.ContainsKey($p.Name) -and $null -ne $p.Value -and "$($p.Value)" -ne '') {
+                $v[$p.Name] = $p.Value
+            }
+        }
+    }
+    return $v
+}
+
 function Read-Config {
     # Defaults, then config.json, then the command line. Throws when config.json
     # exists but cannot be parsed, and leaves the caller to decide what that
@@ -176,26 +230,17 @@ function Read-Config {
         WowAuditExe          = ''
         GuildsOfWowExe       = ''
         TSMExe               = ''
-        LaunchArchon         = $true
-        LaunchWowUp          = $true
-        LaunchCurseForge     = $true
-        LaunchRaiderIO       = $true
-        LaunchWowUtilsBridge = $true
-        LaunchWowAudit       = $true
-        LaunchGuildsOfWow    = $true
-        LaunchTSM            = $true
-        CustomApps           = @()
         CheckForUpdates      = $true
         GamePattern          = '^Wow(Classic|T|B)?$'
         PollSeconds          = 1
         LaunchDelaySeconds   = 3
-        QuitWithWow          = $false
         QuitGraceSeconds     = 5
         LogFile              = Join-Path $env:LOCALAPPDATA 'SLCLauncher\launcher.log'
         MaxLogBytes          = 1MB
     }
 
     # --------------------------------------------------------- config.json --
+    $fromFile = $null
     if (-not $IgnoreFile -and (Test-Path $script:ConfigPath)) {
         $fromFile = Get-Content $script:ConfigPath -Raw | ConvertFrom-Json
         if ($fromFile) {
@@ -205,6 +250,10 @@ function Read-Config {
                 }
             }
         }
+    }
+    $c.Versions = [ordered]@{}
+    foreach ($gv in $script:GameVersions) {
+        $c.Versions[$gv.Key] = Get-VersionSettings $fromFile $gv.Key
     }
 
     # --------------------------------------------- parameter overrides ------
@@ -216,15 +265,16 @@ function Read-Config {
     }
     if ($LaunchDelaySeconds -ge 0) { $c.LaunchDelaySeconds   = $LaunchDelaySeconds }
     if ($QuitGraceSeconds -ge 0)   { $c.QuitGraceSeconds     = $QuitGraceSeconds }
-    if ($QuitWithWow)              { $c.QuitWithWow          = $true }
-    if ($NoArchon)                 { $c.LaunchArchon         = $false }
-    if ($NoWowUp)                  { $c.LaunchWowUp          = $false }
-    if ($NoCurseForge)             { $c.LaunchCurseForge     = $false }
-    if ($NoRaiderIO)               { $c.LaunchRaiderIO       = $false }
-    if ($NoWowUtilsBridge)         { $c.LaunchWowUtilsBridge = $false }
-    if ($NoWowAudit)               { $c.LaunchWowAudit       = $false }
-    if ($NoGuildsOfWow)            { $c.LaunchGuildsOfWow    = $false }
-    if ($NoTSM)                    { $c.LaunchTSM            = $false }
+    # The switches predate versions, and apply to all of them.
+    $off = @{
+        LaunchArchon = $NoArchon; LaunchWowUp = $NoWowUp; LaunchCurseForge = $NoCurseForge
+        LaunchRaiderIO = $NoRaiderIO; LaunchWowUtilsBridge = $NoWowUtilsBridge
+        LaunchWowAudit = $NoWowAudit; LaunchGuildsOfWow = $NoGuildsOfWow; LaunchTSM = $NoTSM
+    }
+    foreach ($v in $c.Versions.Values) {
+        if ($QuitWithWow) { $v.QuitWithWow = $true }
+        foreach ($k in $off.Keys) { if ($off[$k]) { $v[$k] = $false } }
+    }
 
     # -------------------------------------------------------- sanity check --
     # Start-Sleep -Seconds 0 returns instantly, which would spin a core at 100%.
@@ -233,25 +283,25 @@ function Read-Config {
     if ($c.LaunchDelaySeconds -lt 0) { $c.LaunchDelaySeconds = 0 }
     if ($c.QuitGraceSeconds   -lt 0) { $c.QuitGraceSeconds   = 0 }
 
-    foreach ($k in @('QuitWithWow', 'LaunchArchon', 'LaunchWowUp', 'LaunchCurseForge',
-                     'LaunchRaiderIO', 'LaunchWowUtilsBridge', 'LaunchWowAudit',
-                     'LaunchGuildsOfWow', 'LaunchTSM', 'CheckForUpdates')) {
-        $c[$k] = ConvertTo-Bool $c[$k]
-    }
+    $c.CheckForUpdates = ConvertTo-Bool $c.CheckForUpdates
 
-    # Your own programs: { "Name": ..., "Path": ..., "Enabled": ... }. An entry
-    # with no path is meaningless and one switched off is simply left out, so
-    # everything downstream sees only the programs it should start.
-    $custom = @()
-    foreach ($a in @($c.CustomApps)) {
-        if ($null -eq $a -or -not "$($a.Path)".Trim()) { continue }
-        if ($null -ne $a.Enabled -and -not (ConvertTo-Bool $a.Enabled)) { continue }
-        $path = "$($a.Path)".Trim()
-        $name = "$($a.Name)".Trim()
-        if (-not $name) { $name = [System.IO.Path]::GetFileNameWithoutExtension($path) }
-        $custom += @{ Name = $name; Path = $path }
+    foreach ($v in $c.Versions.Values) {
+        foreach ($k in $script:BuiltInKeys + 'QuitWithWow') { $v[$k] = ConvertTo-Bool $v[$k] }
+
+        # Your own programs: { "Name": ..., "Path": ..., "Enabled": ... }. An
+        # entry with no path is meaningless and one switched off is simply left
+        # out, so everything downstream sees only the programs it should start.
+        $custom = @()
+        foreach ($a in @($v.CustomApps)) {
+            if ($null -eq $a -or -not "$($a.Path)".Trim()) { continue }
+            if ($null -ne $a.Enabled -and -not (ConvertTo-Bool $a.Enabled)) { continue }
+            $path = "$($a.Path)".Trim()
+            $name = "$($a.Name)".Trim()
+            if (-not $name) { $name = [System.IO.Path]::GetFileNameWithoutExtension($path) }
+            $custom += @{ Name = $name; Path = $path }
+        }
+        $v.CustomApps = $custom
     }
-    $c.CustomApps = $custom
 
     return $c
 }
@@ -483,13 +533,21 @@ function Set-CompanionExe {
 }
 
 function New-CompanionSet {
-    # Everything the watcher manages under one set of settings, resolved. Can
-    # be empty -- nothing chosen yet -- and the watcher then simply idles.
+    # Everything any version of the game starts, resolved once: an app two
+    # versions both start is one record, so it is started once and known to be
+    # running whichever version started it. Get-VersionCompanions picks out
+    # one version's share. Can be empty -- nothing chosen yet -- and the
+    # watcher then simply idles.
     param([hashtable]$Config)
+
+    $want = @{}
+    foreach ($v in $Config.Versions.Values) {
+        foreach ($k in $script:BuiltInKeys) { if ($v[$k]) { $want[$k] = $true } }
+    }
 
     $set = @()
 
-    if ($Config.LaunchArchon) {
+    if ($want.LaunchArchon) {
         $set += New-Companion `
             -Name 'Archon' `
             -ExeNames @('Archon App.exe') `
@@ -503,7 +561,7 @@ function New-CompanionSet {
             )
     }
 
-    if ($Config.LaunchWowUp) {
+    if ($want.LaunchWowUp) {
         # WowUp-CF is the maintained build and plain WowUp the older one. Either
         # will do; the CF build is tried first because it is what anyone still
         # running WowUp today is running.
@@ -523,7 +581,7 @@ function New-CompanionSet {
             )
     }
 
-    if ($Config.LaunchCurseForge) {
+    if ($want.LaunchCurseForge) {
         $set += New-Companion `
             -Name 'CurseForge' `
             -ExeNames @('CurseForge.exe') `
@@ -537,7 +595,7 @@ function New-CompanionSet {
             )
     }
 
-    if ($Config.LaunchRaiderIO) {
+    if ($want.LaunchRaiderIO) {
         # The uninstall entry reads "RaiderIO 4.x"; the dot is optional so a
         # rename back to the site's own spelling still matches.
         $set += New-Companion `
@@ -553,7 +611,7 @@ function New-CompanionSet {
             )
     }
 
-    if ($Config.LaunchWowUtilsBridge) {
+    if ($want.LaunchWowUtilsBridge) {
         $set += New-Companion `
             -Name 'WowUtils Bridge' `
             -ExeNames @('WowUtils.Bridge.App.exe') `
@@ -567,7 +625,7 @@ function New-CompanionSet {
             )
     }
 
-    if ($Config.LaunchWowAudit) {
+    if ($want.LaunchWowAudit) {
         # The uninstall entry is the bare name, lower case, from an MSI.
         $set += New-Companion `
             -Name 'wowaudit' `
@@ -582,7 +640,7 @@ function New-CompanionSet {
             )
     }
 
-    if ($Config.LaunchGuildsOfWow) {
+    if ($want.LaunchGuildsOfWow) {
         # "GoW Sync App" in the Microsoft Store, which is where the Guilds of
         # WoW site sends Windows users. The uninstall pattern is there in case
         # it is ever offered as an ordinary installer too. No process prefix:
@@ -595,7 +653,7 @@ function New-CompanionSet {
             -Configured $Config.GuildsOfWowExe
     }
 
-    if ($Config.LaunchTSM) {
+    if ($want.LaunchTSM) {
         # The program is in app\ below the install folder; updater\ beside it
         # holds TSMUpdater.exe, which is not what the Start menu opens.
         $set += New-Companion `
@@ -611,12 +669,30 @@ function New-CompanionSet {
             )
     }
 
-    foreach ($a in $Config.CustomApps) {
-        $set += New-Companion `
-            -Name $a.Name `
-            -ExeNames @() `
-            -Configured $a.Path `
-            -Custom $true
+    # Which setting asks for each built-in, so a version can say whether it wants it.
+    $keyOf = @{
+        'Archon' = 'LaunchArchon'; 'WowUp' = 'LaunchWowUp'; 'CurseForge' = 'LaunchCurseForge'
+        'Raider.IO' = 'LaunchRaiderIO'; 'WowUtils Bridge' = 'LaunchWowUtilsBridge'
+        'wowaudit' = 'LaunchWowAudit'; 'Guilds of WoW' = 'LaunchGuildsOfWow'; 'TSM' = 'LaunchTSM'
+    }
+    foreach ($app in $set) { $app.Key = $keyOf[$app.Name] }
+
+    # A program of your own named by more than one version is one record too,
+    # known by its path.
+    $seen = @{}
+    foreach ($v in $Config.Versions.Values) {
+        foreach ($a in $v.CustomApps) {
+            $key = 'custom:' + $a.Path.ToLowerInvariant()
+            if ($seen.ContainsKey($key)) { continue }
+            $seen[$key] = $true
+            $app = New-Companion `
+                -Name $a.Name `
+                -ExeNames @() `
+                -Configured $a.Path `
+                -Custom $true
+            $app.Key = $key
+            $set += $app
+        }
     }
 
     foreach ($app in $set) {
@@ -624,6 +700,50 @@ function New-CompanionSet {
         if ($found) { Set-CompanionExe $app $found }
     }
     return ,$set
+}
+
+function Get-VersionCompanions {
+    # The share of the companion set one version of the game starts.
+    param([string]$Version)
+    # Returned one by one into the pipeline, so callers can filter it.
+    $v = $cfg.Versions[$Version]
+    if (-not $v) { return }
+    $mine = @{}
+    foreach ($k in $script:BuiltInKeys) { if ($v[$k]) { $mine[$k] = $true } }
+    foreach ($a in $v.CustomApps) { $mine['custom:' + $a.Path.ToLowerInvariant()] = $true }
+    $script:Companions | Where-Object { $mine.ContainsKey($_.Key) }
+}
+
+function Get-GameVersion {
+    # Which version a running game is, from the folder its executable is in.
+    # Empty for a version SLCLauncher has no settings for (Classic Era, say),
+    # or a process whose path cannot be read.
+    param($Process)
+    $path = $null
+    try { $path = $Process.Path } catch { }
+    if (-not $path) { return '' }
+    $folder = Split-Path (Split-Path $path -Parent) -Leaf
+    foreach ($gv in $script:GameVersions) {
+        if ($gv.Folders -contains $folder) { return $gv.Key }
+    }
+    return ''
+}
+
+function Get-RunningGames {
+    # Every running game process, id -> version. Identity matters, not just
+    # presence: a game that restarts can have the old process still shutting
+    # down as the new one starts, leaving no moment where nothing matched, and
+    # comparing process IDs catches the new one anyway. A process already in Known
+    # keeps the version found for it then, rather than having its path read
+    # again every poll.
+    param([hashtable]$Known)
+    $games = @{}
+    foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
+        if ($p.ProcessName -notmatch $cfg.GamePattern) { continue }
+        if ($Known -and $Known.ContainsKey($p.Id)) { $games[$p.Id] = $Known[$p.Id] }
+        else { $games[$p.Id] = Get-GameVersion $p }
+    }
+    return $games
 }
 
 function Test-ProcessRunning {
@@ -649,20 +769,6 @@ function Test-NameMatch {
         if ($n -match $Pattern) { return $true }
     }
     return $false
-}
-
-function Get-MatchingProcessIds {
-    # Identity matters, not just presence. A game that restarts can have the old
-    # process still shutting down as the new one starts, leaving no moment where
-    # nothing matched -- so "is the game running" never goes false and a
-    # presence-only check sees no launch at all. Comparing process IDs catches
-    # the new instance even when the two overlap.
-    param([string]$Pattern)
-    $ids = @()
-    foreach ($p in (Get-Process -ErrorAction SilentlyContinue)) {
-        if ($p.ProcessName -match $Pattern) { $ids += $p.Id }
-    }
-    return ,$ids
 }
 
 function Start-Companion {
@@ -712,10 +818,13 @@ function Stop-Companions {
     # A program of your own is closed only if this watcher started it. It is
     # matched by executable name, and closing every process called, say,
     # "chrome" because WoW exited would take the browser you had open anyway.
-    param([int]$GraceSeconds)
+    #
+    # Apps is the share to close: the exited version's, less anything a
+    # version still running starts too.
+    param([int]$GraceSeconds, [object[]]$Apps)
 
     $asked = @()
-    foreach ($app in $script:Companions) {
+    foreach ($app in $Apps) {
         if (-not $app.Exe) { continue }
         if ($app.Custom -and -not $app.LaunchedByUs) { continue }
         $app.LaunchedByUs = $false
@@ -753,14 +862,15 @@ function Stop-Companions {
 function Invoke-CompanionLaunch {
     # Shared by the startup catch-up and the poll loop. Immediate skips the
     # delay: at startup the game has already been up for a while, so there is
-    # nothing left to wait for.
-    param([switch]$Immediate)
+    # nothing left to wait for. Version is the game that started, whose share
+    # of the apps is launched.
+    param([string]$Version, [switch]$Immediate)
 
     $names   = Get-ProcessNameSnapshot
     $pending = @()
     $running = @()
 
-    foreach ($app in $script:Companions) {
+    foreach ($app in (Get-VersionCompanions $Version)) {
         if (-not $app.Exe) {
             # Installed since the watcher started, most likely. Cheap to check
             # here: this runs once per game launch, not once per poll.
@@ -785,7 +895,7 @@ function Invoke-CompanionLaunch {
         Write-Log "waiting $($cfg.LaunchDelaySeconds)s before launching"
         Start-Sleep -Seconds $cfg.LaunchDelaySeconds
         # The game can disappear during the wait (crash, wrong client, instant alt-F4).
-        if (-not (Test-ProcessRunning $cfg.GamePattern)) {
+        if ((Get-RunningGames).Values -notcontains $Version) {
             Write-Log 'game gone during the delay - not launching'
             return
         }
@@ -821,16 +931,18 @@ function Write-Settings {
             Write-Log ("{0,-10}: not installed - skipping" -f $app.Name)
         }
     }
+    foreach ($key in $cfg.Versions.Keys) {
+        $names = @(Get-VersionCompanions $key | ForEach-Object { $_.Name })
+        $list  = if ($names.Count) { $names -join ', ' } else { 'nothing' }
+        $quit  = if ($cfg.Versions[$key].QuitWithWow) { 'closes them' } else { 'leaves them open' }
+        Write-Log ("{0,-10}: starts {1}; exiting {2}" -f $key, $list, $quit)
+    }
     Write-Log "watching  : $($cfg.GamePattern)  every $($cfg.PollSeconds)s"
     Write-Log "delay     : $($cfg.LaunchDelaySeconds)s after the game is spotted"
-    if ($cfg.QuitWithWow) {
-        if ($cfg.QuitGraceSeconds -gt 0) {
-            Write-Log "quit-with-wow: enabled, stopping anything still up after $($cfg.QuitGraceSeconds)s"
-        } else {
-            Write-Log 'quit-with-wow: enabled, asking only'
-        }
+    if ($cfg.QuitGraceSeconds -gt 0) {
+        Write-Log "quit-with-wow: stopping anything still up after $($cfg.QuitGraceSeconds)s"
     } else {
-        Write-Log 'quit-with-wow: off'
+        Write-Log 'quit-with-wow: asking only'
     }
 }
 
@@ -1065,13 +1177,31 @@ $script:NextUpdateCheck = Get-NextUpdateCheck
 # the heartbeat revives it after a kill. Waiting for a fresh launch that already
 # happened would leave it dormant for the rest of the session, so catch up
 # instead -- game up and the apps down is the state this tool exists to fix.
-$knownGamePids = @{}
-foreach ($id in (Get-MatchingProcessIds $cfg.GamePattern)) { $knownGamePids[$id] = $true }
-$wasRunning = $knownGamePids.Count -gt 0
+#
+# Each version is tracked on its own: Retail starting launches Retail's apps
+# even with Anniversary already open, and Anniversary closing closes only what
+# Anniversary started and nothing still running wants.
+function Start-NewGames {
+    # Launches for each version among the new processes, once per version.
+    param([hashtable]$Games, [object[]]$Ids, [switch]$Immediate)
+    $done = @{}
+    foreach ($id in $Ids) {
+        $version = $Games[$id]
+        if (-not $version) {
+            Write-Log "game detected (pid $id) - not a version SLCLauncher has settings for, nothing launched"
+            continue
+        }
+        if ($done.ContainsKey($version)) { continue }
+        $done[$version] = $true
+        Write-Log "$version detected (pid $id)"
+        Invoke-CompanionLaunch -Version $version -Immediate:$Immediate
+    }
+}
 
-if ($wasRunning) {
+$knownGames = Get-RunningGames
+if ($knownGames.Count -gt 0) {
     Write-Log 'game already running at startup'
-    Invoke-CompanionLaunch -Immediate
+    Start-NewGames $knownGames @($knownGames.Keys) -Immediate
 }
 
 while ($true) {
@@ -1081,29 +1211,33 @@ while ($true) {
     if ($stamp -ne $script:ConfigStamp) { Update-Settings $stamp }
 
     try {
-        $currentIds = Get-MatchingProcessIds $cfg.GamePattern
+        $games = Get-RunningGames $knownGames
     } catch {
         Write-Log "process query failed: $_"
         continue
     }
 
-    $isRunning = $currentIds.Count -gt 0
-    $newIds    = @($currentIds | Where-Object { -not $knownGamePids.ContainsKey($_) })
+    $isRunning = $games.Count -gt 0
+    $newIds    = @($games.Keys | Where-Object { -not $knownGames.ContainsKey($_) })
+    if ($newIds.Count -gt 0) { Start-NewGames $games $newIds }
 
-    if ($newIds.Count -gt 0) {
-        Write-Log "game detected (pid $($newIds -join ', '))"
-        Invoke-CompanionLaunch
-    }
-    elseif (-not $isRunning -and $wasRunning) {
-        Write-Log 'game exited'
-        if ($cfg.QuitWithWow) {
-            Stop-Companions -GraceSeconds $cfg.QuitGraceSeconds
+    # A version is gone once none of its processes are left; a restart that
+    # overlaps the old process never looks gone, and is caught above instead.
+    $before = @($knownGames.Values | Where-Object { $_ } | Sort-Object -Unique)
+    $now    = @($games.Values | Where-Object { $_ })
+    foreach ($version in $before) {
+        if ($now -contains $version) { continue }
+        Write-Log "$version exited"
+        if (-not $cfg.Versions[$version].QuitWithWow) { continue }
+        $keep = @{}
+        foreach ($other in ($now | Sort-Object -Unique)) {
+            foreach ($app in (Get-VersionCompanions $other)) { $keep[$app.Key] = $true }
         }
+        $close = @(Get-VersionCompanions $version | Where-Object { -not $keep.ContainsKey($_.Key) })
+        Stop-Companions -GraceSeconds $cfg.QuitGraceSeconds -Apps $close
     }
 
-    $knownGamePids = @{}
-    foreach ($id in $currentIds) { $knownGamePids[$id] = $true }
-    $wasRunning = $isRunning
+    $knownGames = $games
 
     # A check already out is still collected mid-game; its notice waits.
     if (-not $isRunning -or $script:UpdateCheck) {
