@@ -137,7 +137,7 @@ $ErrorActionPreference = 'Stop'
 
 # The single source of truth for the version. Install.ps1 and ViewLog.cmd read
 # it back out of this file rather than keeping copies that can drift.
-$SLCLauncherVersion = '2.3.0'
+$SLCLauncherVersion = '2.4.0'
 
 # ------------------------------------------------------------- single copy --
 # Only one watcher may run at a time. The task starts this script from both a
