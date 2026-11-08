@@ -222,29 +222,34 @@ $measureText = {
     param([string]$Text, $Font)
     [System.Windows.Forms.TextRenderer]::MeasureText($Text, $Font).Width
 }
-$longest  = ($builtIns | ForEach-Object { & $measureCheck $_.Label } | Measure-Object -Maximum).Maximum
-$appColW  = $longest + [int](0.35 * [math]::Max(0, (S 206) - $longest))
-$trayColW = [math]::Max((& $measureText 'Tray' $fontColHead), (S 20)) + (S 4)
-$removeW  = S 26
+$checkBoxW = S 17                 # a checkbox's box alone, with no text
+$trayColW  = [math]::Max((& $measureText 'Tray' $fontColHead), $checkBoxW) + (S 4)
+$trayX     = (S 359) - [int]($trayColW / 2)   # the Tray column, centred 359 in from the card's edge
+# The apps sit a little in from the card's edge, so the Apps heading can be
+# centred over their boxes without running off the card.
+$appsIndent = [math]::Max(0, [int](((& $measureText 'Apps' $fontColHead) - $checkBoxW) / 2) + 1)
+$removeW    = S 22
 $customRowH = S 46                # a program of your own: its name, and its path beneath
 $innerNeed = @(
-    ($appColW + $trayColW + (S 8) + $removeW),            # a program of your own: name, Tray, remove
+    ($trayX + $trayColW),
     (& $measureCheck 'Close them all when Anniversary closes'),
     (& $measureCheck 'Check for a new version once a day')
 ) | Measure-Object -Maximum | ForEach-Object { $_.Maximum }
 
-# The header's subtitle and update line, and the footer's status and buttons,
-# share a line each.
+# The header's subtitle shares its line with the version number, and the
+# footer's status with the Cancel and Save buttons.
 $smallFont = New-Object System.Drawing.Font('Segoe UI', 8.75)
 $probe = New-Object SLCLauncher.Theme.ThemedButton
 $probe.Font = $form.Font
 $probe.Text = 'Cancel'
 $buttonNeed = $probe.GetPreferredSize([System.Drawing.Size]::Empty).Width
 $headerNeed = (S 54) + (& $measureText 'Your World of Warcraft tools, started with the game.' $smallFont) +
-              (S 24) + (& $measureText 'Update available' $smallFont)
-$footerNeed = (& $measureText 'Changes apply the next time WoW starts.' $smallFont) + (S 16) + 2 * $buttonNeed + (S 8)
+              (S 16) + (& $measureText "v$currentVersion" $smallFont)
+$statusNeed = @('Changes apply the next time WoW starts.', 'The watcher is not running right now.' |
+                ForEach-Object { & $measureText $_ $smallFont }) | Measure-Object -Maximum | ForEach-Object { $_.Maximum }
+$footerNeed = $statusNeed + (S 8) + 2 * $buttonNeed + (S 8)
 
-$contentW = [int](@(($innerNeed + 2 * $cardPad), $headerNeed, $footerNeed) | Measure-Object -Maximum).Maximum
+$contentW = [int](@((S 418), ($innerNeed + 2 * $cardPad), $headerNeed, $footerNeed) | Measure-Object -Maximum).Maximum
 $innerW   = $contentW - 2 * $cardPad
 $top      = S 20                  # room above the title for the window buttons
 
@@ -327,7 +332,7 @@ function New-TrayCheck {
     param($AppBox, [bool]$Checked, [string]$AppName)
     $t = New-Check '' $Checked
     $t.AutoSize = $false
-    $t.Size     = New-Object System.Drawing.Size($trayColW, (S 26))
+    $t.Size     = New-Object System.Drawing.Size($checkBoxW, (S 26))
     $t.Enabled  = $AppBox.Checked
     $tips.SetToolTip($t, "Start $AppName with its window closed to the system tray")
     $AppBox.Tag  = $t
@@ -488,17 +493,18 @@ function Add-CustomRow {
     $box.AutoSize = $false
     # A little short of the Tray column, so a long name, cut off with "...",
     # stops clear of the box.
-    $box.Size     = New-Object System.Drawing.Size(($appColW - (S 10)), (S 26))
-    $box.Location = New-Object System.Drawing.Point(0, 0)
+    $box.Size     = New-Object System.Drawing.Size(($trayX - $appsIndent - (S 10)), (S 26))
+    $box.Location = New-Object System.Drawing.Point($appsIndent, 0)
     $tips.SetToolTip($box, $Name)
     $row.Controls.Add($box)
 
     $tray = New-TrayCheck $box $InTray $Name
-    $tray.Location = New-Object System.Drawing.Point($appColW, 0)
+    $tray.Location = New-Object System.Drawing.Point(($trayX + [int](($trayColW - $checkBoxW) / 2)), 0)
     $row.Controls.Add($tray)
 
-    # Under the name, where the name's text starts.
-    $pathX = S 25
+    # Under the name, where the name's text starts; the remove button ends
+    # the line, clear of the Tray column above it.
+    $pathX = $appsIndent + (S 25)
     $pathW = $innerW - $pathX - $removeW - (S 8)
     $pathLabel = New-Object System.Windows.Forms.Label
     $pathLabel.UseCompatibleTextRendering = $false   # as New-Label, and as Get-ShortPath measures
@@ -515,10 +521,10 @@ function Add-CustomRow {
 
     $remove = New-Object SLCLauncher.Theme.ThemedButton
     $remove.Text     = [string][char]0x00D7   # a multiplication sign; Segoe UI has it, so no emoji fallback
-    $remove.Font     = New-Object System.Drawing.Font('Segoe UI', 12)
+    $remove.Font     = New-Object System.Drawing.Font('Segoe UI', 11)
     $remove.AutoSize = $false
     $remove.Size     = New-Object System.Drawing.Size($removeW, $removeW)
-    $remove.Location = New-Object System.Drawing.Point(($innerW - $removeW), 0)
+    $remove.Location = New-Object System.Drawing.Point(($innerW - $removeW), (S 22))
     $tips.SetToolTip($remove, "Remove $Name")
     $row.Controls.Add($remove)
 
@@ -561,21 +567,27 @@ function New-VersionPanel {
     $grid.AutoSizeMode = 'GrowAndShrink'
     $grid.BackColor    = [System.Drawing.Color]::Transparent
     $grid.Margin       = New-Object System.Windows.Forms.Padding(0)
-    foreach ($w in @($appColW, $trayColW)) {
+    foreach ($w in @($trayX, $trayColW)) {
         $null = $grid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle('Absolute', $w)))
     }
     $apps.Controls.Add($grid)
 
-    $col = 0
-    foreach ($text in 'Apps', 'Tray') {
-        $h = New-Label $text $fontColHead $P::TextMuted
-        $h.AutoSize  = $false
-        $h.Size      = New-Object System.Drawing.Size(($appColW, $trayColW)[$col], (S 26))
-        $h.TextAlign = 'BottomLeft'
-        $h.Margin    = New-Object System.Windows.Forms.Padding(0, 0, 0, (S 4))
-        $grid.Controls.Add($h, $col, 0)
-        $col++
-    }
+    # Each heading centred over the boxes below it, with a line's worth of
+    # space between it and the first of them.
+    $headH = [System.Windows.Forms.TextRenderer]::MeasureText('Apps', $fontColHead).Height
+    $headW = [System.Windows.Forms.TextRenderer]::MeasureText('Apps', $fontColHead).Width
+    $appsHead = New-Label 'Apps' $fontColHead $P::TextMuted
+    $appsHead.AutoSize  = $false
+    $appsHead.Size      = New-Object System.Drawing.Size($headW, $headH)
+    $appsHead.Margin    = New-Object System.Windows.Forms.Padding(
+        [math]::Max(0, $appsIndent + [int](($checkBoxW - $headW) / 2)), 0, 0, ($headH + (S 4)))
+    $grid.Controls.Add($appsHead, 0, 0)
+    $trayHead = New-Label 'Tray' $fontColHead $P::TextMuted
+    $trayHead.AutoSize  = $false
+    $trayHead.Size      = New-Object System.Drawing.Size($trayColW, $headH)
+    $trayHead.TextAlign = 'TopCenter'
+    $trayHead.Margin    = New-Object System.Windows.Forms.Padding(0, 0, 0, ($headH + (S 4)))
+    $grid.Controls.Add($trayHead, 1, 0)
 
     $trayApps = @(Get-VersionSetting $Version 'TrayApps' @())
     for ($i = 0; $i -lt $builtIns.Count; $i++) {
@@ -583,10 +595,11 @@ function New-VersionPanel {
         # Defaults as the watcher's: Retail starts everything, a version new
         # to SLCLauncher starts nothing until it is ticked here.
         $box = New-Check $b.Label (ConvertTo-Bool (Get-VersionSetting $Version $b.Key ($Version -eq 'Retail')))
+        $box.Margin = New-Object System.Windows.Forms.Padding($appsIndent, 0, 0, (S 2))
         $grid.Controls.Add($box, 0, $i + 1)
         $state.AppBoxes[$b.Key] = $box
         $tray = New-TrayCheck $box ($trayApps -contains $b.Key) $b.Label
-        $tray.Dock = 'Fill'
+        $tray.Anchor = 'None'                # centred in its column, under the heading
         $grid.Controls.Add($tray, 1, $i + 1)
         $state.TrayBoxes[$b.Key] = $tray
     }
