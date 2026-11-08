@@ -498,11 +498,11 @@ function Add-CustomRow {
     $tips.SetToolTip($box, $Name)
     $row.Controls.Add($box)
 
-    # The Tray box and the remove button are centred on the row's height,
-    # name and path together. The box draws in the middle of its height.
+    # The Tray box on the name's line, in the Tray column, and the remove
+    # button centred beneath it on the path's line.
+    $trayCentre = $trayX + [int]($trayColW / 2)
     $tray = New-TrayCheck $box $InTray $Name
-    $tray.Size     = New-Object System.Drawing.Size($checkBoxW, $customRowH)
-    $tray.Location = New-Object System.Drawing.Point(($trayX + [int](($trayColW - $checkBoxW) / 2)), 0)
+    $tray.Location = New-Object System.Drawing.Point(($trayCentre - [int]($checkBoxW / 2)), 0)
     $row.Controls.Add($tray)
 
     # Under the name, a little below it, where the name's text starts.
@@ -526,7 +526,7 @@ function Add-CustomRow {
     $remove.Font     = New-Object System.Drawing.Font('Segoe UI', 11)
     $remove.AutoSize = $false
     $remove.Size     = New-Object System.Drawing.Size($removeW, $removeW)
-    $remove.Location = New-Object System.Drawing.Point(($innerW - $removeW), [int](($customRowH - $removeW) / 2))
+    $remove.Location = New-Object System.Drawing.Point(($trayCentre - [int]($removeW / 2)), (S 28))
     $tips.SetToolTip($remove, "Remove $Name")
     $row.Controls.Add($remove)
 
