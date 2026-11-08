@@ -207,8 +207,23 @@ function S { param([double]$Px) [int][math]::Round($Px * $scale) }
 
 $pad      = S 18                  # window edge -> content
 $cardPad  = S 14                  # card edge -> its contents
-$contentW = S 640                 # the width every card shares
-$innerW   = $contentW - 2 * $cardPad
+# The width every card shares comes from the app grid: two columns, each an
+# app and its Tray box, with nothing to the right of the second Tray. Tray
+# sits a short gap after the longest name; the second column starts where it
+# always has.
+$measure = {
+    param([string]$Text)
+    $c = New-Object SLCLauncher.Theme.ThemedCheckBox
+    $c.Font = $form.Font
+    $c.Text = $Text
+    $c.GetPreferredSize([System.Drawing.Size]::Empty).Width
+}
+$longest  = ($builtIns | ForEach-Object { & $measure $_.Label } | Measure-Object -Maximum).Maximum
+$appColW  = $longest + [int](0.35 * [math]::Max(0, (S 206) - $longest))
+$trayColW = (& $measure 'Tray') + (S 2)
+$halfW    = S 306                 # where the second column starts
+$innerW   = $halfW + $appColW + $trayColW
+$contentW = $innerW + 2 * $cardPad
 $top      = S 20                  # room above the title for the window buttons
 
 # The taskbar shows the window's icon, not the file's, so the icon embedded in
@@ -519,11 +534,8 @@ function New-VersionPanel {
     $grid.AutoSizeMode = 'GrowAndShrink'
     $grid.BackColor    = [System.Drawing.Color]::Transparent
     $grid.Margin       = New-Object System.Windows.Forms.Padding(0)
-    $trayColW = S 100
-    $appColW  = [int]($innerW / 2) - $trayColW
-    foreach ($i in 0..1) {
-        $null = $grid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle('Absolute', $appColW)))
-        $null = $grid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle('Absolute', $trayColW)))
+    foreach ($w in @($appColW, ($halfW - $appColW), $appColW, $trayColW)) {
+        $null = $grid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle('Absolute', $w)))
     }
     $apps.Controls.Add($grid)
 
@@ -539,19 +551,6 @@ function New-VersionPanel {
         $tray = New-TrayCheck $box ($trayApps -contains $b.Key) $b.Label
         $grid.Controls.Add($tray, $col + 1, $i % $grid.RowCount)
         $state.TrayBoxes[$b.Key] = $tray
-    }
-
-    # Tray sits close to the longest name rather than at the far side of a
-    # half-card column: the gap that would leave, cut by 65%. Its column takes
-    # up the rest, so the right-hand apps still start halfway across.
-    $longest = 0
-    foreach ($k in $state.AppBoxes.Keys) {
-        $longest = [math]::Max($longest, $state.AppBoxes[$k].GetPreferredSize([System.Drawing.Size]::Empty).Width)
-    }
-    $tight = [math]::Min($appColW, $longest + [int](0.35 * [math]::Max(0, $appColW - $longest)))
-    foreach ($i in 0, 2) {
-        $grid.ColumnStyles[$i].Width     = $tight
-        $grid.ColumnStyles[$i + 1].Width = $appColW + $trayColW - $tight
     }
     $apps.Controls.Add((New-Hint ("Started when $Version starts. Anything ticked that is not installed is skipped. " +
         'Tray closes the app''s window as soon as it opens, so it waits in the tray instead of covering ' +
