@@ -118,9 +118,10 @@ addon manager halfway through an update.
 
 ## Starting them in the tray
 
-With **Start them in the system tray** ticked, each app SLCLauncher starts has
-its window closed, as **X** would, the moment it appears, so the apps wait in
-the tray instead of covering the screen. Apps that were already open are left
+Tick **In tray** beside an app, or beside a program of your own, and when
+SLCLauncher starts it its window is closed, as **X** would, the moment it
+appears, so it waits in the tray instead of covering the screen. Each version
+has its own choice. Apps that were already open are left
 alone. An app with no tray icon quits when closed; it is started again, left
 open, and not closed again until the watcher restarts.
 
@@ -147,16 +148,16 @@ it within a second of a save. Keys the settings window doesn't show are kept.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `Versions` | defaults | One object per version (`Retail`, `Forever`, `MoP`, `Anniversary`) holding the three keys below. |
+| `Versions` | defaults | One object per version (`Retail`, `Forever`, `MoP`, `Anniversary`) holding the keys below. |
 | ↳ `LaunchArchon` … `LaunchTSM` | `true` for Retail, else `false` | Start that app with this version. |
-| ↳ `CustomApps` | none | Your own programs: `Name`, `Path`, `Enabled`. |
+| ↳ `TrayApps` | none | Launch keys (`LaunchWowUp`, …) of the apps this version starts in the tray. |
+| ↳ `CustomApps` | none | Your own programs: `Name`, `Path`, `Enabled`, `InTray`. |
 | ↳ `QuitWithWow` | `false` | Close the apps when this version exits. |
 | `ArchonExe` … `TSMExe` | auto | Full path, only if auto-detection misses the app. |
 | `GamePattern` | `^Wow(Classic\|T\|B)?$` | Regex for the game's process name. |
 | `PollSeconds` | `1` | Seconds between checks. |
 | `LaunchDelaySeconds` | `3` | Wait after spotting the game. |
 | `QuitGraceSeconds` | `5` | Time to close before being stopped. |
-| `StartInTray` | `false` | Close each started app's window to the tray as it opens. |
 | `CheckForUpdates` | `true` | Check GitHub for a new version once a day. |
 
 A `config.json` from before versions, with those keys at the top level, is read

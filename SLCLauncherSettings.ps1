@@ -116,7 +116,7 @@ $gameVersions = @(
 
 # What each version's tab holds. Saved under Versions in config.json; the
 # rest of config.json is shared.
-$versionKeys = @($builtIns | ForEach-Object { $_.Key }) + 'QuitWithWow', 'CustomApps'
+$versionKeys = @($builtIns | ForEach-Object { $_.Key }) + 'QuitWithWow', 'CustomApps', 'TrayApps'
 
 function Find-InstalledVersions {
     # The versions installed on this PC: a version's folder with a game in it,
@@ -207,7 +207,7 @@ function S { param([double]$Px) [int][math]::Round($Px * $scale) }
 
 $pad      = S 18                  # window edge -> content
 $cardPad  = S 14                  # card edge -> its contents
-$contentW = S 470                 # the width every card shares
+$contentW = S 640                 # the width every card shares
 $innerW   = $contentW - 2 * $cardPad
 $top      = S 20                  # room above the title for the window buttons
 
@@ -281,6 +281,19 @@ function New-Check {
     $c.Checked = $Checked
     $c.Margin  = New-Object System.Windows.Forms.Padding(0, 0, 0, (S 2))
     return $c
+}
+
+function New-TrayCheck {
+    # "In tray", beside an app: start it with its window closed to the tray.
+    # Greyed out while the app itself is unticked, since it would not start.
+    param($AppBox, [bool]$Checked, [string]$AppName)
+    $t = New-Check 'In tray' $Checked
+    $t.ForeColor = $P::TextMuted
+    $t.Enabled   = $AppBox.Checked
+    $tips.SetToolTip($t, "Start $AppName with its window closed to the system tray")
+    $AppBox.Tag  = $t
+    $AppBox.Add_CheckedChanged({ param($sender) $sender.Tag.Enabled = $sender.Checked })
+    return $t
 }
 
 function New-Hint {
@@ -424,7 +437,7 @@ function Get-ShortPath {
 
 function Add-CustomRow {
     # One program of a version's own: its tick box, its path, and a button to drop it.
-    param($State, [string]$Name, [string]$Path, [bool]$Enabled)
+    param($State, [string]$Name, [string]$Path, [bool]$Enabled, [bool]$InTray)
 
     $row = New-Object System.Windows.Forms.Panel
     $row.Size      = New-Object System.Drawing.Size($innerW, (S 32))
@@ -433,11 +446,18 @@ function Add-CustomRow {
 
     $box = New-Check $Name $Enabled
     $box.AutoSize = $false
-    $box.Size     = New-Object System.Drawing.Size((S 170), (S 32))
+    $box.Size     = New-Object System.Drawing.Size((S 210), (S 32))
     $box.Location = New-Object System.Drawing.Point(0, 0)
     $row.Controls.Add($box)
 
-    $pathW = $innerW - (S 178) - (S 36)
+    $trayW = S 90
+    $tray = New-TrayCheck $box $InTray $Name
+    $tray.AutoSize = $false
+    $tray.Size     = New-Object System.Drawing.Size($trayW, (S 32))
+    $tray.Location = New-Object System.Drawing.Point(($innerW - (S 36) - $trayW), 0)
+    $row.Controls.Add($tray)
+
+    $pathW = $innerW - (S 218) - (S 36) - $trayW - (S 8)
     $pathLabel = New-Object System.Windows.Forms.Label
     $pathLabel.UseCompatibleTextRendering = $false   # as New-Label, and as Get-ShortPath measures
     $pathLabel.Text      = Get-ShortPath $Path $fontSmall $pathW
@@ -446,7 +466,7 @@ function Add-CustomRow {
     $pathLabel.BackColor = [System.Drawing.Color]::Transparent
     $pathLabel.AutoSize  = $false
     $pathLabel.TextAlign = 'MiddleLeft'
-    $pathLabel.Location  = New-Object System.Drawing.Point((S 178), 0)
+    $pathLabel.Location  = New-Object System.Drawing.Point((S 218), 0)
     $pathLabel.Size      = New-Object System.Drawing.Size($pathW, (S 32))
     $tips.SetToolTip($pathLabel, $Path)
     $row.Controls.Add($pathLabel)
@@ -462,7 +482,7 @@ function Add-CustomRow {
 
     # The entry rides on the button rather than in a closure: a closure would
     # cut the handler off from the functions it calls.
-    $entry = @{ Name = $Name; Path = $Path; Box = $box; Row = $row; State = $State }
+    $entry = @{ Name = $Name; Path = $Path; Box = $box; Tray = $tray; Row = $row; State = $State }
     $remove.Tag = $entry
     $remove.Add_Click({
         param($sender)
@@ -484,36 +504,45 @@ function New-VersionPanel {
     $panel = New-Stack
     $panel.Visible = $false
     $versionsHost.Controls.Add($panel)
-    $state = @{ Key = $Version; Panel = $panel; AppBoxes = @{}
+    $state = @{ Key = $Version; Panel = $panel; AppBoxes = @{}; TrayBoxes = @{}
                 CustomRows = (New-Object System.Collections.ArrayList) }
 
     # --------------------------------------------------- the built-in apps --
     $apps = Add-Section 'Start with World of Warcraft' $panel
 
-    # Two columns: the names are short, and one long column left most of the
-    # card empty.
+    # Two columns, each an app and its "In tray" beside it: the names are
+    # short, and one long column left most of the card empty.
     $grid = New-Object System.Windows.Forms.TableLayoutPanel
-    $grid.ColumnCount  = 2
+    $grid.ColumnCount  = 4
     $grid.RowCount     = [math]::Ceiling($builtIns.Count / 2)
     $grid.AutoSize     = $true
     $grid.AutoSizeMode = 'GrowAndShrink'
     $grid.BackColor    = [System.Drawing.Color]::Transparent
     $grid.Margin       = New-Object System.Windows.Forms.Padding(0)
-    $colW = [int]($innerW / 2)
+    $trayColW = S 100
+    $appColW  = [int]($innerW / 2) - $trayColW
     foreach ($i in 0..1) {
-        $null = $grid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle('Absolute', $colW)))
+        $null = $grid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle('Absolute', $appColW)))
+        $null = $grid.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle('Absolute', $trayColW)))
     }
     $apps.Controls.Add($grid)
 
+    $trayApps = @(Get-VersionSetting $Version 'TrayApps' @())
     for ($i = 0; $i -lt $builtIns.Count; $i++) {
         $b = $builtIns[$i]
         # Defaults as the watcher's: Retail starts everything, a version new
         # to SLCLauncher starts nothing until it is ticked here.
         $box = New-Check $b.Label (ConvertTo-Bool (Get-VersionSetting $Version $b.Key ($Version -eq 'Retail')))
-        $grid.Controls.Add($box, [int][math]::Floor($i / $grid.RowCount), $i % $grid.RowCount)
+        $col = 2 * [int][math]::Floor($i / $grid.RowCount)
+        $grid.Controls.Add($box, $col, $i % $grid.RowCount)
         $state.AppBoxes[$b.Key] = $box
+        $tray = New-TrayCheck $box ($trayApps -contains $b.Key) $b.Label
+        $grid.Controls.Add($tray, $col + 1, $i % $grid.RowCount)
+        $state.TrayBoxes[$b.Key] = $tray
     }
-    $apps.Controls.Add((New-Hint "Started when $Version starts. Anything ticked that is not installed is skipped."))
+    $apps.Controls.Add((New-Hint ("Started when $Version starts. Anything ticked that is not installed is skipped. " +
+        'In tray closes the app''s window as soon as it opens, so it waits in the tray instead of covering ' +
+        'your screen; an app with no tray icon is started again and left open.')))
 
     # -------------------------------------------------- your own programs ---
     $own = Add-Section 'Your own programs' $panel
@@ -535,7 +564,7 @@ function New-VersionPanel {
         $name = "$($a.Name)".Trim()
         if (-not $name) { $name = [System.IO.Path]::GetFileNameWithoutExtension($path) }
         $enabled = ($null -eq $a.Enabled) -or (ConvertTo-Bool $a.Enabled)
-        $null = Add-CustomRow $state $name $path $enabled
+        $null = Add-CustomRow $state $name $path $enabled (ConvertTo-Bool $a.InTray)
     }
 
     $addButton = New-Object SLCLauncher.Theme.ThemedButton
@@ -571,7 +600,7 @@ function New-VersionPanel {
         try { $name = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($path).FileDescription } catch { }
         if (-not "$name".Trim()) { $name = [System.IO.Path]::GetFileNameWithoutExtension($path) }
 
-        $null = Add-CustomRow $s "$name".Trim() $path $true
+        $null = Add-CustomRow $s "$name".Trim() $path $true $false
     })
 
     # ------------------------------------------------------ close with WoW --
@@ -626,13 +655,6 @@ function Select-Version {
 }
 Update-VersionsHeight
 Select-Version $versionStates[0].Key
-
-# ------------------------------------------------------------ start in tray --
-$windows = Add-Section 'When the apps start'
-$trayBox = New-Check 'Start them in the system tray' (ConvertTo-Bool (Get-Setting 'StartInTray' $false))
-$windows.Controls.Add($trayBox)
-$windows.Controls.Add((New-Hint ('Each app SLCLauncher starts has its window closed as soon as it opens, so it ' +
-    'waits in the tray instead of covering your screen. An app with no tray icon is started again and left open.')))
 
 # ----------------------------------------------------------------- updates --
 $updates = Add-Section 'Updates'
@@ -692,7 +714,8 @@ function Set-Setting {
 
 $saveButton.Add_Click({
     Set-Setting 'CheckForUpdates' $updateBox.Checked
-    Set-Setting 'StartInTray'     $trayBox.Checked
+    # A key from the build that had one switch for every app.
+    $config.PSObject.Properties.Remove('StartInTray')
 
     # Versions not installed here keep whatever was saved for them.
     $versions = [ordered]@{}
@@ -715,6 +738,7 @@ $saveButton.Add_Click({
     foreach ($s in $versionStates) {
         $v = [ordered]@{}
         foreach ($b in $builtIns) { $v[$b.Key] = $s.AppBoxes[$b.Key].Checked }
+        $v.TrayApps = @($builtIns | Where-Object { $s.TrayBoxes[$_.Key].Checked } | ForEach-Object { $_.Key })
         $v.QuitWithWow = $s.QuitBox.Checked
         $custom = @()
         foreach ($entry in $s.CustomRows) {
@@ -722,6 +746,7 @@ $saveButton.Add_Click({
                 Name    = $entry.Name
                 Path    = $entry.Path
                 Enabled = $entry.Box.Checked
+                InTray  = $entry.Tray.Checked
             }
         }
         $v.CustomApps = $custom

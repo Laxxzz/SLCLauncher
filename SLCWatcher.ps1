@@ -194,7 +194,7 @@ function Get-VersionSettings {
     # version with nothing on, so installing it starts nothing unasked.
     param($FromFile, [string]$Key)
 
-    $v = @{ CustomApps = @(); QuitWithWow = $false }
+    $v = @{ CustomApps = @(); QuitWithWow = $false; TrayApps = @() }
     foreach ($k in $script:BuiltInKeys) { $v[$k] = ($Key -eq 'Retail') }
 
     $source = $null
@@ -233,7 +233,6 @@ function Read-Config {
         GuildsOfWowExe       = ''
         TSMExe               = ''
         CheckForUpdates      = $true
-        StartInTray          = $false
         GamePattern          = '^Wow(Classic|T|B)?$'
         PollSeconds          = 1
         LaunchDelaySeconds   = 3
@@ -287,12 +286,14 @@ function Read-Config {
     if ($c.QuitGraceSeconds   -lt 0) { $c.QuitGraceSeconds   = 0 }
 
     $c.CheckForUpdates = ConvertTo-Bool $c.CheckForUpdates
-    $c.StartInTray     = ConvertTo-Bool $c.StartInTray
 
     foreach ($v in $c.Versions.Values) {
         foreach ($k in $script:BuiltInKeys + 'QuitWithWow') { $v[$k] = ConvertTo-Bool $v[$k] }
 
-        # Your own programs: { "Name": ..., "Path": ..., "Enabled": ... }. An
+        # The built-in apps this version starts in the tray, by their Launch key.
+        $v.TrayApps = @(@($v.TrayApps) | Where-Object { $_ } | ForEach-Object { "$_".Trim() })
+
+        # Your own programs: { "Name": ..., "Path": ..., "Enabled": ..., "InTray": ... }. An
         # entry with no path is meaningless and one switched off is simply left
         # out, so everything downstream sees only the programs it should start.
         $custom = @()
@@ -302,7 +303,7 @@ function Read-Config {
             $path = "$($a.Path)".Trim()
             $name = "$($a.Name)".Trim()
             if (-not $name) { $name = [System.IO.Path]::GetFileNameWithoutExtension($path) }
-            $custom += @{ Name = $name; Path = $path }
+            $custom += @{ Name = $name; Path = $path; InTray = (ConvertTo-Bool $a.InTray) }
         }
         $v.CustomApps = $custom
     }
@@ -776,9 +777,9 @@ function Test-NameMatch {
 }
 
 # ---------------------------------------------------------- start in tray --
-# With StartInTray on, each app this watcher starts has its window closed as
-# soon as it appears, so a game launch does not bury the desktop under five
-# windows. Closing means what the X button sends, which an app with a tray
+# Each app a version marks "in tray" -- TrayApps for the built-ins, InTray on
+# a program of your own -- has its window closed as soon as this watcher
+# starts it, so a game launch does not bury the desktop under five windows. Closing means what the X button sends, which an app with a tray
 # icon reads as "go to the tray". Hiding the window behind the app's back
 # would be quicker, but an app with no tray icon would then be left running
 # with no way back to it.
@@ -907,7 +908,7 @@ function Invoke-TrayTick {
 }
 
 function Start-Companion {
-    param([hashtable]$App, [switch]$LeaveOpen)
+    param([hashtable]$App, [switch]$InTray, [switch]$LeaveOpen)
 
     # An update can relocate the executable long after we resolved it at
     # startup, so re-resolve rather than launching a path that is no longer there.
@@ -934,7 +935,7 @@ function Start-Companion {
         }
         $App.LaunchedByUs = $true
         Write-Log "launched $($App.Exe)"
-        if ($cfg.StartInTray -and -not $LeaveOpen -and -not $script:NoTray[$App.Key]) {
+        if ($InTray -and -not $LeaveOpen -and -not $script:NoTray[$App.Key]) {
             Add-TrayWatch $App
         }
     } catch {
@@ -1041,6 +1042,8 @@ function Invoke-CompanionLaunch {
         $names = Get-ProcessNameSnapshot
     }
 
+    $tray = Get-VersionTrayKeys $Version
+
     # A program of your own can name the same executable as a built-in one --
     # Raider.IO added by hand as well as ticked, say. Start it once.
     $started = @{}
@@ -1051,8 +1054,21 @@ function Invoke-CompanionLaunch {
         }
         if ($started.ContainsKey($app.Pattern)) { continue }
         $started[$app.Pattern] = $true
-        Start-Companion $app
+        Start-Companion $app -InTray:($tray.ContainsKey($app.Key))
     }
+}
+
+function Get-VersionTrayKeys {
+    # The companion keys a version starts in the tray.
+    param([string]$Version)
+    $keys = @{}
+    $v = $cfg.Versions[$Version]
+    if (-not $v) { return $keys }
+    foreach ($k in @($v.TrayApps)) { $keys[$k] = $true }
+    foreach ($a in $v.CustomApps) {
+        if ($a.InTray) { $keys['custom:' + $a.Path.ToLowerInvariant()] = $true }
+    }
+    return $keys
 }
 
 function Write-Settings {
@@ -1074,11 +1090,12 @@ function Write-Settings {
         $list  = if ($names.Count) { $names -join ', ' } else { 'nothing' }
         $quit  = if ($cfg.Versions[$key].QuitWithWow) { 'closes them' } else { 'leaves them open' }
         Write-Log ("{0,-10}: starts {1}; exiting {2}" -f $key, $list, $quit)
+        $tray  = Get-VersionTrayKeys $key
+        $trayN = @(Get-VersionCompanions $key | Where-Object { $tray.ContainsKey($_.Key) } | ForEach-Object { $_.Name })
+        if ($trayN.Count) { Write-Log ("{0,-10}  in the tray: {1}" -f '', ($trayN -join ', ')) }
     }
     Write-Log "watching  : $($cfg.GamePattern)  every $($cfg.PollSeconds)s"
-    Write-Log "delay     : $($cfg.LaunchDelaySeconds)s after the game is spotted"
-    if ($cfg.StartInTray) { Write-Log 'windows   : closed to the tray as the apps start' }
-    if ($cfg.QuitGraceSeconds -gt 0) {
+    Write-Log "delay     : $($cfg.LaunchDelaySeconds)s after the game is spotted"    if ($cfg.QuitGraceSeconds -gt 0) {
         Write-Log "quit-with-wow: stopping anything still up after $($cfg.QuitGraceSeconds)s"
     } else {
         Write-Log 'quit-with-wow: asking only'

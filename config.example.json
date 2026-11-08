@@ -18,6 +18,7 @@
       "LaunchGuildsOfWow":    true,
       "LaunchTSM":            true,
       "QuitWithWow":          false,
+      "TrayApps":             ["LaunchWowUp", "LaunchRaiderIO"],
       "CustomApps":           []
     },
     "Anniversary": {
@@ -37,6 +38,5 @@
   "PollSeconds":          1,
   "LaunchDelaySeconds":   3,
   "QuitGraceSeconds":     5,
-  "StartInTray":          false,
   "CheckForUpdates":      true
 }
