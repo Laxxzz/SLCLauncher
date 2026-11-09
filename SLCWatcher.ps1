@@ -369,7 +369,8 @@ function New-Companion {
         [string]   $StorePackage,
         [string[]] $Fallbacks,
         [string]   $Configured,
-        [bool]     $Custom
+        [bool]     $Custom,
+        [switch]   $TrayHide
     )
     @{
         Name            = $Name
@@ -380,6 +381,7 @@ function New-Companion {
         Fallbacks       = @($Fallbacks | Where-Object { $_ })
         Configured      = $Configured
         Custom          = $Custom
+        TrayHide        = [bool]$TrayHide   # hide its window for the tray rather than close it
         Exe             = $null
         Pattern         = $null
         LaunchVia       = $null   # shell:AppsFolder\... for a Store app, else the Exe itself
@@ -558,6 +560,7 @@ function New-CompanionSet {
             -ExeNames @('Archon App.exe') `
             -RegistryPattern 'Archon App' `
             -ProcessPrefix 'Archon' `
+            -TrayHide `
             -Configured $Config.ArchonExe `
             -Fallbacks @(
                 (Join-Path $env:ProgramFiles        'Archon App\Archon App.exe'),
@@ -788,10 +791,18 @@ function Test-NameMatch {
 # An app that has no tray quits instead. It is started again and left open,
 # and is not closed again until the watcher restarts.
 #
+# Archon is the exception: it does have a tray, but only its own title-bar X
+# sends it there, and a close from Windows quits it. Its window is hidden
+# instead (TrayHide), which is where its X puts it, and its tray icon shows it
+# again.
+#
+# Only resizable windows are touched. A fixed-size one is a splash, login or
+# update screen -- Raider.IO's, say, which shuts the app down when closed,
+# while the app itself starts in its own tray anyway.
+#
 # A window is watched for from launch until TrayWatchSeconds have passed, or
-# until TrayQuietSeconds after the last one closed: an app that opens a
-# splash screen and then its main window has both closed, and one opened by
-# hand from the tray a little later is left alone.
+# until TrayQuietSeconds after the last one closed, and one opened by hand
+# from the tray a little later is left alone.
 $script:TrayWatches      = New-Object System.Collections.ArrayList
 $script:NoTray           = @{}
 $script:TrayNative       = $null    # $null not tried yet, $false unavailable
@@ -815,9 +826,11 @@ namespace SLCLauncher {
         [DllImport("user32.dll")] static extern int GetWindowTextLength(IntPtr hwnd);
         [DllImport("user32.dll")] static extern int GetWindowLong(IntPtr hwnd, int index);
         [DllImport("user32.dll")] static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
+        [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr hwnd, int cmd);
 
-        // The windows that would show on the taskbar: visible, titled, owned
-        // by no other window and not a tool window.
+        // The windows that would show on the taskbar -- visible, titled, owned
+        // by no other window and not a tool window -- and are resizable: a
+        // fixed-size one is a splash, login or update screen.
         public static long[] Find(int[] pids) {
             var want = new HashSet<uint>();
             foreach (int p in pids) want.Add((uint)p);
@@ -830,6 +843,7 @@ namespace SLCLauncher {
                 int ex = GetWindowLong(h, -20);                              // GWL_EXSTYLE
                 bool tool = (ex & 0x80) != 0, app = (ex & 0x40000) != 0;     // TOOLWINDOW, APPWINDOW
                 if (tool && !app) return true;
+                if ((GetWindowLong(h, -16) & 0x40000) == 0) return true;     // GWL_STYLE, WS_THICKFRAME
                 if (GetWindowTextLength(h) == 0) return true;
                 found.Add(h.ToInt64());
                 return true;
@@ -842,6 +856,11 @@ namespace SLCLauncher {
         // the user closing the window, and quit outright on anything else.
         public static void Close(long hwnd) {
             PostMessage(new IntPtr(hwnd), 0x0112, new IntPtr(0xF060), IntPtr.Zero); // WM_SYSCOMMAND, SC_CLOSE
+        }
+
+        // For an app whose tray only its own X reaches.
+        public static void Hide(long hwnd) {
+            ShowWindow(new IntPtr(hwnd), 0);                                         // SW_HIDE
         }
     }
 }
@@ -892,11 +911,21 @@ function Invoke-TrayTick {
 
         if ($pids.Count -gt 0) {
             foreach ($h in [SLCLauncher.TrayWindows]::Find($pids)) {
-                if ($w.Closed.ContainsKey($h)) { continue }
-                $w.Closed[$h] = $true
-                [SLCLauncher.TrayWindows]::Close($h)
+                if ($app.TrayHide) {
+                    # A hidden window can be shown again by the app as it
+                    # finishes loading; hide it again, a few times at most.
+                    $n = [int]$w.Closed[$h]
+                    if ($n -ge 3) { continue }
+                    $w.Closed[$h] = $n + 1
+                    [SLCLauncher.TrayWindows]::Hide($h)
+                    if ($n -eq 0) { Write-Log "$($app.Name): hid its window in the tray" }
+                } else {
+                    if ($w.Closed.ContainsKey($h)) { continue }
+                    $w.Closed[$h] = 1
+                    [SLCLauncher.TrayWindows]::Close($h)
+                    Write-Log "$($app.Name): closed its window to the tray"
+                }
                 $w.QuietAt = $now.AddSeconds($script:TrayQuietSeconds)
-                Write-Log "$($app.Name): closed its window to the tray"
             }
         }
 

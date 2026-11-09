@@ -125,6 +125,11 @@ has its own choice. Apps that were already open are left alone. An app with
 no tray icon quits when closed; it is started again, left open, and not
 closed again until the watcher restarts.
 
+Archon's window is hidden rather than closed, since only its own **X** sends
+it to the tray. Fixed-size splash, login and update windows are left alone:
+closing Raider.IO's would shut it down, and it starts in its own tray anyway
+unless you've turned that off in its settings.
+
 ## Updates
 
 The top right of the settings window says **Up to date** or, in orange,
